@@ -1,0 +1,45 @@
+name: Build Standalone EXE
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install streamlit pandas openpyxl Pillow pyinstaller
+
+    - name: Create database
+      run: |
+        python -c "import sqlite3; conn = sqlite3.connect('halo_fit.db'); conn.execute('''CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, name TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'''); conn.execute('''CREATE TABLE customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, contact TEXT, email TEXT, phone TEXT, address TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'''); conn.execute('''CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, spec TEXT, price_usd REAL DEFAULT 0.0, price_eur REAL DEFAULT 0.0, price_cny REAL DEFAULT 0.0, stock INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'''); conn.execute('''CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_no TEXT UNIQUE NOT NULL, customer_id INTEGER, product_id INTEGER, quantity INTEGER NOT NULL, currency TEXT NOT NULL, price REAL NOT NULL, total_amount REAL NOT NULL, status TEXT DEFAULT '待处理', notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (customer_id) REFERENCES customers(id), FOREIGN KEY (product_id) REFERENCES products(id))'''); conn.execute('''INSERT OR IGNORE INTO users (username, password, name) VALUES ('admin', 'admin123', '管理员')'''); conn.commit(); conn.close()"
+
+    - name: Build standalone EXE
+      run: pyinstaller --onefile --console --collect-all --hidden-import=streamlit --hidden-import=streamlit.runtime.scriptrunner.script_runner --hidden-import=streamlit.runtime.runtime --hidden-import=pandas --hidden-import=pandas._libs --hidden-import=sqlite3 --name="HALO-FIT-外贸进销存系统" app_fixed.py
+
+    - name: Create Release Package
+      run: |
+        mkdir release
+        if exist dist\*.exe copy dist\*.exe release\
+        if exist halo_fit.db copy halo_fit.db release\
+        if exist 使用说明.md copy 使用说明.md release\
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: halo-fit-erp-standalone
+        path: release/
+        retention-days: 7
