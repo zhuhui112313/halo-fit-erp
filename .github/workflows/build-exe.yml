@@ -25,7 +25,7 @@ jobs:
       run: pip install pyinstaller
 
     - name: Build EXE
-      run: pyinstaller --onefile --console --name="HALO-FIT-外贸进销存系统" app.py
+      run: pyinstaller --onefile --console --name="HALO-FIT-外贸进销存系统" --collect-all --hidden-import=streamlit --hidden-import=streamlit.runtime.scriptrunner.script_runner app.py
 
     - name: Create Release Package
       run: |
