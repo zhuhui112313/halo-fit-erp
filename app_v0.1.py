@@ -11,11 +11,6 @@ import plotly.express as px
 import csv
 from io import StringIO
 
-# 版本信息
-APP_VERSION = "v0.2"
-APP_VERSION_DATE = "2026-02-28"
-APP_VERSION_NAME = "核心增强版"
-
 # 配置页面
 st.set_page_config(
     page_title="HALO-FIT 外贸进销存系统 v0.2",
