@@ -316,7 +316,7 @@ def login_page():
             
             if user:
                 st.session_state.user = user
-                st.session_state.page = 'dashboard'
+                st.session_state.page = 'orders'
                 st.success("登录成功！")
                 st.rerun()
             else:
@@ -1312,7 +1312,125 @@ def migration_page():
         st.info("暂无备份记录")
 
 # 主程序
-init_db()
+# 初始化数据库（内联版本，确保兼容性）
+def inline_init_db():
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    
+    # 用户表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 客户表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            contact TEXT,
+            email TEXT,
+            phone TEXT,
+            address TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 供应商表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS suppliers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT DEFAULT '成品',
+            contact TEXT,
+            email TEXT,
+            phone TEXT,
+            address TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 产品表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            manufacturer TEXT,
+            manufacturer_model TEXT,
+            type TEXT DEFAULT '成品',
+            supplier_id INTEGER,
+            price_usd REAL DEFAULT 0.0,
+            price_eur REAL DEFAULT 0.0,
+            price_cny REAL DEFAULT 0.0,
+            stock INTEGER DEFAULT 0,
+            stock_warning INTEGER DEFAULT 10,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 订单表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_no TEXT UNIQUE NOT NULL,
+            customer_id INTEGER,
+            product_id INTEGER,
+            quantity INTEGER NOT NULL,
+            currency TEXT NOT NULL,
+            price REAL NOT NULL,
+            total_amount REAL NOT NULL,
+            status TEXT DEFAULT '待处理',
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            parent_order_id INTEGER,
+            is_split BOOLEAN DEFAULT 0
+        )
+    """)
+    
+    # 库存日志表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventory_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            quantity_change INTEGER,
+            type TEXT,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER
+        )
+    """)
+    
+    # 数据备份表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            file_path TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER
+        )
+    """)
+    
+    # 检查users表是否有role字段，没有就添加
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+    except:
+        pass
+    
+    # 插入默认用户
+    cursor.execute("INSERT OR IGNORE INTO users (username, password, name, role) VALUES ('admin', 'admin123', '超级管理员', 'admin')")
+    
+    conn.commit()
+    conn.close()
+
+inline_init_db()
 
 if st.session_state.user is None:
     login_page()
