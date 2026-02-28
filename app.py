@@ -124,7 +124,7 @@ def login():
         with st.form("login_form"):
             username = st.text_input("用户名：")
             password = st.text_input("密码：", type="password")
-            login_button = st.form_submit("登录")
+            login_button = st.form_submit_button("登录")
         
         st.info("默认账号：admin / admin123")
         
@@ -209,6 +209,12 @@ def show_dashboard():
         show_stats_page()
     elif st.session_state.current_page == 'reports':
         show_reports_page()
+    elif st.session_state.current_page == 'add_order':
+        show_add_order_page()
+    elif st.session_state.current_page == 'add_customer':
+        show_add_customer_page()
+    elif st.session_state.current_page == 'add_product':
+        show_add_product_page()
     else:
         show_orders_page()
 
@@ -436,6 +442,156 @@ def export_orders():
         )
     else:
         st.warning("暂无订单数据可导出")
+
+def show_add_order_page():
+    """新建订单页面"""
+    st.subheader("📝 新建订单")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("← 返回订单管理", use_container_width=True):
+            st.session_state.current_page = 'orders'
+            st.rerun()
+    
+    st.divider()
+    
+    with st.form("add_order_form"):
+        order_no = st.text_input("订单号：", f"ORD-{datetime.now().strftime('%Y%m%d')}-001")
+        
+        # 获取客户列表
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM customers")
+        customers = cursor.fetchall()
+        cursor.execute("SELECT id, name FROM products")
+        products = cursor.fetchall()
+        conn.close()
+        
+        customer_options = [f"{c[1]} (ID:{c[0]})" for c in customers] if customers else ["暂无客户"]
+        product_options = [f"{p[1]} (ID:{p[0]})" for p in products] if products else ["暂无产品"]
+        
+        customer_selected = st.selectbox("客户：", customer_options)
+        product_selected = st.selectbox("产品：", product_options)
+        
+        quantity = st.number_input("数量：", min_value=1, value=1)
+        currency = st.selectbox("币种：", ["USD", "EUR", "CNY"])
+        price = st.number_input("单价：", min_value=0.0, value=0.0, step=0.01)
+        status = st.selectbox("状态：", ["待处理", "处理中", "已完成", "已取消"])
+        notes = st.text_area("备注：")
+        
+        submit_button = st.form_submit_button("提交订单")
+        
+        if submit_button:
+            if not customers or not products:
+                st.error("请先创建客户和产品！")
+                return
+            
+            # 提取客户ID和产品ID
+            customer_id = int(customer_selected.split("(ID:")[1].rstrip(")"))
+            product_id = int(product_selected.split("(ID:")[1].rstrip(")"))
+            total_amount = quantity * price
+            
+            try:
+                conn = sqlite3.connect(db_file)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO orders (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes))
+                conn.commit()
+                conn.close()
+                st.success("订单创建成功！")
+                st.session_state.current_page = 'orders'
+                st.rerun()
+            except Exception as e:
+                st.error(f"创建订单失败：{e}")
+
+def show_add_customer_page():
+    """新建客户页面"""
+    st.subheader("➕ 新建客户")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("← 返回客户管理", use_container_width=True):
+            st.session_state.current_page = 'customers'
+            st.rerun()
+    
+    st.divider()
+    
+    with st.form("add_customer_form"):
+        name = st.text_input("客户名称：")
+        contact = st.text_input("联系人：")
+        email = st.text_input("邮箱：")
+        phone = st.text_input("电话：")
+        address = st.text_area("地址：")
+        
+        submit_button = st.form_submit_button("提交客户")
+        
+        if submit_button:
+            if not name:
+                st.error("请输入客户名称！")
+                return
+            
+            try:
+                conn = sqlite3.connect(db_file)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO customers (name, contact, email, phone, address)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (name, contact, email, phone, address))
+                conn.commit()
+                conn.close()
+                st.success("客户创建成功！")
+                st.session_state.current_page = 'customers'
+                st.rerun()
+            except Exception as e:
+                st.error(f"创建客户失败：{e}")
+
+def show_add_product_page():
+    """新建产品页面"""
+    st.subheader("➕ 新建产品")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("← 返回产品管理", use_container_width=True):
+            st.session_state.current_page = 'products'
+            st.rerun()
+    
+    st.divider()
+    
+    with st.form("add_product_form"):
+        name = st.text_input("产品名称：")
+        spec = st.text_input("规格：")
+        price_usd = st.number_input("USD 价格：", min_value=0.0, value=0.0, step=0.01)
+        price_eur = st.number_input("EUR 价格：", min_value=0.0, value=0.0, step=0.01)
+        price_cny = st.number_input("CNY 价格：", min_value=0.0, value=0.0, step=0.01)
+        stock = st.number_input("库存数量：", min_value=0, value=0)
+        stock_warning = st.number_input("库存预警值：", min_value=0, value=10)
+        
+        submit_button = st.form_submit_button("提交产品")
+        
+        if submit_button:
+            if not name:
+                st.error("请输入产品名称！")
+                return
+            
+            try:
+                conn = sqlite3.connect(db_file)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO products (name, spec, price_usd, price_eur, price_cny, stock, stock_warning)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (name, spec, price_usd, price_eur, price_cny, stock, stock_warning))
+                conn.commit()
+                conn.close()
+                st.success("产品创建成功！")
+                st.session_state.current_page = 'products'
+                st.rerun()
+            except Exception as e:
+                st.error(f"创建产品失败：{e}")
 
 # 主程序
 init_db()
