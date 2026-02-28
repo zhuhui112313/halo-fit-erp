@@ -1,17 +1,14 @@
 """
-HALO-FIT 外贸进销存系统 - v0.5
+HALO-FIT 外贸进销存系统 - v0.6
 开发时间：2026-02-28
-版本：v0.5（功能完整版）
+版本：v0.6（业务增强版）
 新增功能：
-- 数据仪表盘（Dashboard）
-- 订单输出PDF
-- 报关模块
-- 安全性增强
-- 多用户权限系统
-- 系统性能优化
-- 移动端适配
-- 通知系统
-- 高级登录功能
+1. 订单拼货功能 - 支持一个订单包含多种产品型号
+2. 订单分批发货功能 - 支持一个订单分多次发货/出货
+3. 客户管理增强 - 增加跟进业务员等字段
+4. 供应商管理优化 - 隐藏ID，增加公司名称和搜索
+5. 产品管理优化 - 取消生产厂家，改为供应商型号
+6. 产品管理增强 - 图片上传、图库、产品参数列表
 """
 
 import streamlit as st
@@ -22,20 +19,27 @@ import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
 import base64
+import os
+from PIL import Image
 
 # 版本信息
-APP_VERSION = "v0.5"
+APP_VERSION = "v0.6"
 APP_VERSION_DATE = "2026-02-28"
-APP_VERSION_NAME = "功能完整版"
+APP_VERSION_NAME = "业务增强版"
 
 # 配置页面
 st.set_page_config(
-    page_title="HALO-FIT 外贸进销存系统 v0.5",
+    page_title="HALO-FIT 外贸进销存系统 v0.6",
     layout="wide"
 )
 
 # 数据库文件
 db_file = "halo_fit.db"
+
+# 图片存储目录
+IMAGE_DIR = "product_images"
+if not os.path.exists(IMAGE_DIR):
+    os.makedirs(IMAGE_DIR)
 
 # 初始化数据库（内联版本）
 def inline_init_db():
@@ -54,26 +58,51 @@ def inline_init_db():
         )
     """)
     
-    # 客户表
+    # 客户表（增强）
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            contact TEXT,
-            email TEXT,
+            company_name TEXT NOT NULL,
+            contact_person TEXT,
             phone TEXT,
+            email TEXT,
             address TEXT,
+            salesperson TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
-    # 供应商表
+    # 检查并更新客户表结构
+    cursor.execute("PRAGMA table_info(customers)")
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    if 'name' in columns and 'company_name' not in columns:
+        cursor.execute("ALTER TABLE customers RENAME TO customers_old")
+        cursor.execute("""
+            CREATE TABLE customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_name TEXT NOT NULL,
+                contact_person TEXT,
+                phone TEXT,
+                email TEXT,
+                address TEXT,
+                salesperson TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO customers (id, company_name, contact_person, phone, email, address)
+            SELECT id, name, contact, phone, email, address FROM customers_old
+        """)
+        cursor.execute("DROP TABLE customers_old")
+    
+    # 供应商表（优化）
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
+            company_name TEXT NOT NULL,
             type TEXT DEFAULT '成品',
-            contact TEXT,
+            contact_person TEXT,
             email TEXT,
             phone TEXT,
             address TEXT,
@@ -81,13 +110,36 @@ def inline_init_db():
         )
     """)
     
-    # 产品表
+    # 检查并更新供应商表结构
+    cursor.execute("PRAGMA table_info(suppliers)")
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    if 'name' in columns and 'company_name' not in columns:
+        cursor.execute("ALTER TABLE suppliers RENAME TO suppliers_old")
+        cursor.execute("""
+            CREATE TABLE suppliers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_name TEXT NOT NULL,
+                type TEXT DEFAULT '成品',
+                contact_person TEXT,
+                email TEXT,
+                phone TEXT,
+                address TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO suppliers (id, company_name, type, contact_person, email, phone, address)
+            SELECT id, name, type, contact, email, phone, address FROM suppliers_old
+        """)
+        cursor.execute("DROP TABLE suppliers_old")
+    
+    # 产品表（增强）
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            manufacturer TEXT,
-            manufacturer_model TEXT,
+            supplier_model TEXT,
             type TEXT DEFAULT '成品',
             supplier_id INTEGER,
             price_usd REAL DEFAULT 0.0,
@@ -95,26 +147,118 @@ def inline_init_db():
             price_cny REAL DEFAULT 0.0,
             stock INTEGER DEFAULT 0,
             stock_warning INTEGER DEFAULT 10,
+            image_path TEXT,
+            power TEXT,
+            running_belt_length TEXT,
+            running_belt_width TEXT,
+            package_spec TEXT,
+            load_40hq INTEGER,
+            load_20gp INTEGER,
+            container_quantity INTEGER,
+            motor_power TEXT,
+            working_voltage TEXT,
+            remark1 TEXT,
+            remark2 TEXT,
+            remark3 TEXT,
+            remark4 TEXT,
+            remark5 TEXT,
+            remark6 TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
-    # 订单表
+    # 检查并更新产品表结构
+    cursor.execute("PRAGMA table_info(products)")
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    if 'manufacturer' in columns and 'supplier_model' not in columns:
+        cursor.execute("ALTER TABLE products RENAME TO products_old")
+        cursor.execute("""
+            CREATE TABLE products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                supplier_model TEXT,
+                type TEXT DEFAULT '成品',
+                supplier_id INTEGER,
+                price_usd REAL DEFAULT 0.0,
+                price_eur REAL DEFAULT 0.0,
+                price_cny REAL DEFAULT 0.0,
+                stock INTEGER DEFAULT 0,
+                stock_warning INTEGER DEFAULT 10,
+                image_path TEXT,
+                power TEXT,
+                running_belt_length TEXT,
+                running_belt_width TEXT,
+                package_spec TEXT,
+                load_40hq INTEGER,
+                load_20gp INTEGER,
+                container_quantity INTEGER,
+                motor_power TEXT,
+                working_voltage TEXT,
+                remark1 TEXT,
+                remark2 TEXT,
+                remark3 TEXT,
+                remark4 TEXT,
+                remark5 TEXT,
+                remark6 TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO products (id, name, type, supplier_id, price_usd, price_eur, price_cny, stock, stock_warning, created_at)
+            SELECT id, name, type, supplier_id, price_usd, price_eur, price_cny, stock, stock_warning, created_at FROM products_old
+        """)
+        cursor.execute("DROP TABLE products_old")
+    
+    # 订单主表（支持拼货）
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_no TEXT UNIQUE NOT NULL,
             customer_id INTEGER,
-            product_id INTEGER,
-            quantity INTEGER NOT NULL,
-            currency TEXT NOT NULL,
-            price REAL NOT NULL,
-            total_amount REAL NOT NULL,
+            total_amount REAL DEFAULT 0.0,
+            currency TEXT DEFAULT 'USD',
             status TEXT DEFAULT '待处理',
             notes TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             parent_order_id INTEGER,
             is_split BOOLEAN DEFAULT 0
+        )
+    """)
+    
+    # 订单明细表（拼货用）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER,
+            product_id INTEGER,
+            quantity INTEGER NOT NULL,
+            price REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 发货记录表（分批发货用）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER,
+            shipment_no TEXT NOT NULL,
+            shipment_date DATE,
+            status TEXT DEFAULT '待发货',
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 发货明细表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shipment_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shipment_id INTEGER,
+            order_item_id INTEGER,
+            quantity INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
@@ -143,7 +287,7 @@ def inline_init_db():
         )
     """)
     
-    # 报关单表（新增）
+    # 报关单表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS customs_declarations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,7 +309,7 @@ def inline_init_db():
         )
     """)
     
-    # 操作日志表（新增）
+    # 操作日志表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS operation_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,7 +322,7 @@ def inline_init_db():
         )
     """)
     
-    # 通知表（新增）
+    # 通知表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,12 +334,6 @@ def inline_init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    # 检查users表是否有role字段，没有就添加
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
-    except:
-        pass
     
     # 插入默认用户
     cursor.execute("INSERT OR IGNORE INTO users (username, password, name, role) VALUES ('admin', 'admin123', '超级管理员', 'admin')")
@@ -221,6 +359,8 @@ if 'show_add_supplier' not in st.session_state:
     st.session_state.show_add_supplier = False
 if 'show_add_declaration' not in st.session_state:
     st.session_state.show_add_declaration = False
+if 'show_add_shipment' not in st.session_state:
+    st.session_state.show_add_shipment = False
 if 'show_split_order' not in st.session_state:
     st.session_state.show_split_order = False
 if 'show_inventory_action' not in st.session_state:
@@ -233,6 +373,8 @@ if 'print_content' not in st.session_state:
     st.session_state.print_content = ''
 if 'show_user_management' not in st.session_state:
     st.session_state.show_user_management = False
+if 'order_items' not in st.session_state:
+    st.session_state.order_items = []
 
 # 工具函数
 def log_operation(action, module, details):
@@ -280,103 +422,41 @@ def get_unread_notifications():
     except:
         return []
 
-def generate_order_pdf(order_id):
-    """生成订单PDF"""
-    conn = sqlite3.connect(db_file)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT o.*, c.name as customer_name, p.name as product_name
-        FROM orders o
-        LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN products p ON o.product_id = p.id
-        WHERE o.id = ?
-    """, (order_id,))
-    order = cursor.fetchone()
-    conn.close()
-    
-    if not order:
+def save_product_image(image_file, product_id):
+    """保存产品图片"""
+    if image_file is None:
         return None
     
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>订单 {order[1]}</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; padding: 40px; }}
-            .header {{ text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 20px; margin-bottom: 30px; }}
-            .company-name {{ font-size: 28px; font-weight: bold; color: #2c3e50; }}
-            .order-title {{ font-size: 24px; margin-top: 20px; color: #3498db; }}
-            .info-section {{ margin: 20px 0; }}
-            .info-row {{ display: flex; margin: 10px 0; }}
-            .info-label {{ width: 150px; font-weight: bold; }}
-            .info-value {{ flex: 1; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-            th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
-            th {{ background-color: #3498db; color: white; }}
-            .footer {{ margin-top: 50px; text-align: center; color: #7f8c8d; font-size: 12px; border-top: 1px solid #ddd; padding-top: 20px; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="company-name">HALO-FIT 外贸有限公司</div>
-            <div class="order-title">订单确认单</div>
-        </div>
+    try:
+        # 打开图片
+        image = Image.open(image_file)
         
-        <div class="info-section">
-            <div class="info-row">
-                <div class="info-label">订单号：</div>
-                <div class="info-value">{order[1]}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">客户名称：</div>
-                <div class="info-value">{order[13] if len(order) > 13 else '-'}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">产品名称：</div>
-                <div class="info-value">{order[14] if len(order) > 14 else '-'}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">数量：</div>
-                <div class="info-value">{order[4]}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">币种：</div>
-                <div class="info-value">{order[5]}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">单价：</div>
-                <div class="info-value">{order[6]:.2f}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">总金额：</div>
-                <div class="info-value" style="font-size: 20px; font-weight: bold; color: #e74c3c;">{order[7]:.2f} {order[5]}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">状态：</div>
-                <div class="info-value">{order[8]}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">创建时间：</div>
-                <div class="info-value">{order[10]}</div>
-            </div>
-        </div>
+        # 调整大小为标准尺寸
+        max_size = (300, 300)
+        image.thumbnail(max_size)
         
-        {f'<div class="info-section"><div class="info-label">备注：</div><div class="info-value">{order[9]}</div></div>' if order[9] else ''}
+        # 保存图片
+        image_path = os.path.join(IMAGE_DIR, f"product_{product_id}.jpg")
+        image.save(image_path, "JPEG", quality=85)
         
-        <div class="footer">
-            <p>HALO-FIT 外贸进销存系统 - {APP_VERSION}</p>
-            <p>此订单由系统自动生成，如有疑问请联系客服</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html_content
+        return image_path
+    except Exception as e:
+        st.error(f"图片保存失败：{e}")
+        return None
+
+def get_product_image(image_path):
+    """获取产品图片"""
+    if not image_path or not os.path.exists(image_path):
+        return None
+    try:
+        return Image.open(image_path)
+    except:
+        return None
 
 # 登录页面
 def login_page():
     """登录页面"""
-    st.title("🟢 HALO-FIT 外贸进销存系统 v0.5")
+    st.title("🟢 HALO-FIT 外贸进销存系统 v0.6")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
@@ -440,7 +520,7 @@ def top_navigation():
     
     with col1:
         role_text = "超级管理员" if st.session_state.user and len(st.session_state.user) > 4 and st.session_state.user[4] == 'admin' else "普通用户"
-        st.markdown(f"### 🟢 HALO-FIT ERP v0.5 | 👤 {st.session_state.user[3]} | 🔑 {role_text}")
+        st.markdown(f"### 🟢 HALO-FIT ERP v0.6 | 👤 {st.session_state.user[3]} | 🔑 {role_text}")
     
     with col2:
         if st.button("📊 仪表盘", use_container_width=True):
@@ -473,13 +553,13 @@ def top_navigation():
             st.rerun()
     
     with col8:
-        if st.button("📃 报关", use_container_width=True):
-            st.session_state.page = 'customs'
+        if st.button("🚚 发货", use_container_width=True):
+            st.session_state.page = 'shipments'
             st.rerun()
     
     with col9:
-        if st.button("📊 报表", use_container_width=True):
-            st.session_state.page = 'reports'
+        if st.button("📃 报关", use_container_width=True):
+            st.session_state.page = 'customs'
             st.rerun()
     
     with col10:
@@ -626,66 +706,18 @@ def dashboard_page():
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("暂无订单数据")
-    
-    st.divider()
-    
-    # 下方图表
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🏆 热销产品Top 10")
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT p.name, SUM(o.quantity) as total_qty
-            FROM orders o
-            LEFT JOIN products p ON o.product_id = p.id
-            GROUP BY p.id
-            ORDER BY total_qty DESC
-            LIMIT 10
-        """)
-        product_data = cursor.fetchall()
-        conn.close()
-        
-        if product_data:
-            df_products = pd.DataFrame(product_data, columns=['产品', '销售数量'])
-            fig = px.bar(df_products, x='产品', y='销售数量', title='热销产品')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("暂无销售数据")
-    
-    with col2:
-        st.subheader("👥 大客户Top 10")
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT c.name, SUM(o.total_amount) as total_amount
-            FROM orders o
-            LEFT JOIN customers c ON o.customer_id = c.id
-            GROUP BY c.id
-            ORDER BY total_amount DESC
-            LIMIT 10
-        """)
-        customer_data = cursor.fetchall()
-        conn.close()
-        
-        if customer_data:
-            df_customers = pd.DataFrame(customer_data, columns=['客户', '采购金额'])
-            fig = px.bar(df_customers, x='客户', y='采购金额', title='大客户排行')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("暂无客户数据")
 
-# 订单管理页面
+# 订单管理页面（支持拼货）
 def orders_page():
-    """订单管理页面"""
-    st.subheader("📋 订单管理")
+    """订单管理页面（支持拼货）"""
+    st.subheader("📋 订单管理（拼货版）")
     
     col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
     
     with col1:
         if st.button("📝 新建订单", use_container_width=True):
             st.session_state.show_add_order = True
+            st.session_state.order_items = []
             st.rerun()
         if st.button("🔄 刷新", use_container_width=True):
             st.rerun()
@@ -706,12 +738,13 @@ def orders_page():
     # 新建订单弹窗
     if st.session_state.show_add_order:
         st.markdown("---")
-        st.subheader("📝 新建订单")
+        st.subheader("📝 新建订单（支持拼货）")
         add_order_form()
         col1, col2 = st.columns([1, 1])
         with col1:
             if st.button("❌ 取消", key="cancel_order", use_container_width=True):
                 st.session_state.show_add_order = False
+                st.session_state.order_items = []
                 st.rerun()
         st.markdown("---")
     
@@ -721,19 +754,17 @@ def orders_page():
     
     if keyword:
         cursor.execute("""
-            SELECT o.*, c.name as customer_name, p.name as product_name
+            SELECT o.*, c.company_name as customer_name
             FROM orders o
             LEFT JOIN customers c ON o.customer_id = c.id
-            LEFT JOIN products p ON o.product_id = p.id
-            WHERE o.order_no LIKE ? OR c.name LIKE ? OR p.name LIKE ? OR o.status LIKE ?
+            WHERE o.order_no LIKE ? OR c.company_name LIKE ? OR o.status LIKE ?
             ORDER BY o.created_at DESC
-        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
+        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
     else:
         cursor.execute("""
-            SELECT o.*, c.name as customer_name, p.name as product_name
+            SELECT o.*, c.company_name as customer_name
             FROM orders o
             LEFT JOIN customers c ON o.customer_id = c.id
-            LEFT JOIN products p ON o.product_id = p.id
             ORDER BY o.created_at DESC
         """)
     
@@ -742,38 +773,73 @@ def orders_page():
     
     if orders:
         for order in orders:
-            with st.expander(f"订单号：{order[1]} - 客户：{order[13] if len(order) > 13 else '未知'} - 金额：{order[7]:.2f} {order[5]}"):
+            with st.expander(f"订单号：{order[1]} - 客户：{order[9] if len(order) > 9 else '未知'} - 总金额：{order[3]:.2f} {order[4]}"):
                 col1, col2 = st.columns([1, 3])
                 
                 with col1:
                     st.write(f"ID：{order[0]}")
-                    st.write(f"产品：{order[14] if len(order) > 14 else '未知'}")
-                    st.write(f"数量：{order[4]}")
-                    st.write(f"单价：{order[6]:.2f}")
-                    st.write(f"状态：{order[8]}")
-                    st.write(f"创建时间：{order[10]}")
-                    if order[11]:
-                        st.write(f"父订单ID：{order[11]}")
-                    if order[12]:
+                    st.write(f"总金额：{order[3]:.2f} {order[4]}")
+                    st.write(f"状态：{order[5]}")
+                    st.write(f"创建时间：{order[7]}")
+                    if order[8]:
+                        st.write(f"父订单ID：{order[8]}")
+                    if order[9]:
                         st.write(f"已拆分：是")
                 
                 with col2:
-                    if order[9]:
-                        st.info(f"备注：{order[9]}")
+                    if order[6]:
+                        st.info(f"备注：{order[6]}")
+                    
+                    # 显示订单明细
+                    st.subheader("📦 订单明细")
+                    conn = sqlite3.connect(db_file)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT oi.*, p.name as product_name
+                        FROM order_items oi
+                        LEFT JOIN products p ON oi.product_id = p.id
+                        WHERE oi.order_id = ?
+                    """, (order[0],))
+                    items = cursor.fetchall()
+                    conn.close()
+                    
+                    if items:
+                        df_items = pd.DataFrame(items, columns=['ID', '订单ID', '产品ID', '数量', '单价', '创建时间', '产品名称'])
+                        st.dataframe(df_items[['产品名称', '数量', '单价']], use_container_width=True)
+                    else:
+                        st.info("暂无订单明细")
+                    
+                    # 显示发货记录
+                    st.subheader("🚚 发货记录")
+                    conn = sqlite3.connect(db_file)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT * FROM shipments WHERE order_id = ? ORDER BY created_at DESC
+                    """, (order[0],))
+                    shipments = cursor.fetchall()
+                    conn.close()
+                    
+                    if shipments:
+                        df_shipments = pd.DataFrame(shipments, columns=['ID', '订单ID', '发货单号', '发货日期', '状态', '备注', '创建时间'])
+                        st.dataframe(df_shipments[['发货单号', '发货日期', '状态', '备注']], use_container_width=True)
+                    else:
+                        st.info("暂无发货记录")
                     
                     col3, col4, col5 = st.columns(3)
                     with col3:
+                        if st.button(f"🚚 发货 {order[0]}", key=f"ship_order_{order[0]}"):
+                            st.session_state.show_add_shipment = True
+                            st.session_state.shipment_order_id = order[0]
+                            st.rerun()
+                    with col4:
                         if st.button(f"📄 导出PDF {order[0]}", key=f"pdf_order_{order[0]}"):
                             pdf_content = generate_order_pdf(order[0])
                             if pdf_content:
                                 st.session_state.print_content = pdf_content
                                 st.session_state.show_pdf_preview = True
                                 st.rerun()
-                    with col4:
-                        if st.button(f"🖨️ 打印 {order[0]}", key=f"print_order_{order[0]}"):
-                            st.success(f"正在打印订单：{order[1]}")
                     with col5:
-                        if not order[12] and st.button(f"🔄 拆分 {order[0]}", key=f"split_order_{order[0]}"):
+                        if not order[9] and st.button(f"🔄 拆分 {order[0]}", key=f"split_order_{order[0]}"):
                             st.session_state.show_split_order = True
                             st.session_state.split_order_id = order[0]
                             st.rerun()
@@ -789,17 +855,29 @@ def orders_page():
                     st.session_state.show_split_order = False
                     st.rerun()
             st.markdown("---")
+        
+        # 发货弹窗
+        if st.session_state.show_add_shipment:
+            st.markdown("---")
+            st.subheader("🚚 新建发货")
+            add_shipment_form()
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("❌ 取消", key="cancel_shipment", use_container_width=True):
+                    st.session_state.show_add_shipment = False
+                    st.rerun()
+            st.markdown("---")
     else:
         st.info("暂无订单数据")
 
 def add_order_form():
-    """新建订单表单"""
+    """新建订单表单（支持拼货）"""
     order_no = st.text_input("订单号：", f"ORD-{datetime.now().strftime('%Y%m%d')}-001", key="new_order_no")
     
     # 获取客户列表
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM customers")
+    cursor.execute("SELECT id, company_name FROM customers")
     customers = cursor.fetchall()
     cursor.execute("SELECT id, name FROM products")
     products = cursor.fetchall()
@@ -809,40 +887,158 @@ def add_order_form():
     product_options = [f"{p[1]} (ID:{p[0]})" for p in products] if products else ["暂无产品"]
     
     customer_selected = st.selectbox("客户：", customer_options, key="new_order_customer")
-    product_selected = st.selectbox("产品：", product_options, key="new_order_product")
-    
-    quantity = st.number_input("数量：", min_value=1, value=1, key="new_order_qty")
     currency = st.selectbox("币种：", ["USD", "EUR", "CNY"], key="new_order_currency")
-    price = st.number_input("单价：", min_value=0.0, value=0.0, step=0.01, key="new_order_price")
     status = st.selectbox("状态：", ["待处理", "处理中", "已完成", "已取消"], key="new_order_status")
     notes = st.text_area("备注：", key="new_order_notes")
     
-    if st.button("提交订单", type="primary", key="submit_order"):
-        if not customers or not products:
-            st.error("请先创建客户和产品！")
+    st.divider()
+    st.subheader("📦 添加产品（拼货）")
+    
+    # 产品选择
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        product_selected = st.selectbox("选择产品：", product_options, key="new_order_product_select")
+    with col2:
+        quantity = st.number_input("数量：", min_value=1, value=1, key="new_order_product_qty")
+    with col3:
+        price = st.number_input("单价：", min_value=0.0, value=0.0, step=0.01, key="new_order_product_price")
+    
+    if st.button("➕ 添加产品到订单", key="add_product_to_order"):
+        if not products or product_selected == "暂无产品":
+            st.error("请先创建产品！")
             return
         
-        # 提取客户ID和产品ID
-        customer_id = int(customer_selected.split("(ID:")[1].rstrip(")"))
         product_id = int(product_selected.split("(ID:")[1].rstrip(")"))
-        total_amount = quantity * price
+        
+        st.session_state.order_items.append({
+            'product_id': product_id,
+            'product_name': product_selected,
+            'quantity': quantity,
+            'price': price
+        })
+        
+        st.success(f"产品已添加！当前共 {len(st.session_state.order_items)} 个产品")
+    
+    # 显示已添加的产品
+    if st.session_state.order_items:
+        st.subheader("📋 已添加的产品")
+        df = pd.DataFrame(st.session_state.order_items)
+        st.dataframe(df, use_container_width=True)
+        
+        # 计算总金额
+        total_amount = sum(item['quantity'] * item['price'] for item in st.session_state.order_items)
+        st.metric("总金额", f"{total_amount:.2f} {currency}")
+    
+    if st.button("提交订单", type="primary", key="submit_order"):
+        if not customers:
+            st.error("请先创建客户！")
+            return
+        
+        if not st.session_state.order_items:
+            st.error("请至少添加一个产品！")
+            return
+        
+        # 提取客户ID
+        customer_id = int(customer_selected.split("(ID:")[1].rstrip(")"))
+        total_amount = sum(item['quantity'] * item['price'] for item in st.session_state.order_items)
         
         try:
             conn = sqlite3.connect(db_file)
             cursor = conn.cursor()
+            
+            # 创建订单主表
             cursor.execute("""
-                INSERT INTO orders (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes))
+                INSERT INTO orders (order_no, customer_id, total_amount, currency, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (order_no, customer_id, total_amount, currency, status, notes))
+            
+            order_id = cursor.lastrowid
+            
+            # 创建订单明细
+            for item in st.session_state.order_items:
+                cursor.execute("""
+                    INSERT INTO order_items (order_id, product_id, quantity, price)
+                    VALUES (?, ?, ?, ?)
+                """, (order_id, item['product_id'], item['quantity'], item['price']))
+            
             conn.commit()
             conn.close()
             
-            log_operation("创建订单", "订单管理", f"创建订单 {order_no}")
+            log_operation("创建订单", "订单管理", f"创建拼货订单 {order_no}，共 {len(st.session_state.order_items)} 个产品")
             st.success("订单创建成功！")
             st.session_state.show_add_order = False
+            st.session_state.order_items = []
             st.rerun()
         except Exception as e:
             st.error(f"创建订单失败：{e}")
+
+def add_shipment_form():
+    """新建发货表单"""
+    if 'shipment_order_id' not in st.session_state:
+        return
+    
+    shipment_no = st.text_input("发货单号：", f"SHP-{datetime.now().strftime('%Y%m%d')}-001", key="new_shipment_no")
+    shipment_date = st.date_input("发货日期：", datetime.now(), key="new_shipment_date")
+    status = st.selectbox("状态：", ["待发货", "已发货", "运输中", "已送达"], key="new_shipment_status")
+    notes = st.text_area("备注：", key="new_shipment_notes")
+    
+    # 获取订单明细
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT oi.*, p.name as product_name
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = ?
+    """, (st.session_state.shipment_order_id,))
+    items = cursor.fetchall()
+    conn.close()
+    
+    if items:
+        st.subheader("📦 选择发货产品")
+        for item in items:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.write(f"产品：{item[6]}")
+            with col2:
+                max_qty = item[3]
+                ship_qty = st.number_input(f"发货数量（最大：{max_qty}）：", min_value=0, max_value=max_qty, value=0, key=f"ship_qty_{item[0]}")
+            with col3:
+                st.write(f"单价：{item[4]:.2f}")
+    else:
+        st.info("该订单暂无产品明细")
+    
+    if st.button("确认发货", type="primary", key="confirm_shipment"):
+        try:
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            
+            # 创建发货记录
+            cursor.execute("""
+                INSERT INTO shipments (order_id, shipment_no, shipment_date, status, notes)
+                VALUES (?, ?, ?, ?, ?)
+            """, (st.session_state.shipment_order_id, shipment_no, shipment_date, status, notes))
+            
+            shipment_id = cursor.lastrowid
+            
+            # 创建发货明细
+            for item in items:
+                ship_qty_key = f"ship_qty_{item[0]}"
+                if ship_qty_key in st.session_state and st.session_state[ship_qty_key] > 0:
+                    cursor.execute("""
+                        INSERT INTO shipment_items (shipment_id, order_item_id, quantity)
+                        VALUES (?, ?, ?)
+                    """, (shipment_id, item[0], st.session_state[ship_qty_key]))
+            
+            conn.commit()
+            conn.close()
+            
+            log_operation("创建发货", "发货管理", f"创建发货 {shipment_no}")
+            st.success("发货记录创建成功！")
+            st.session_state.show_add_shipment = False
+            st.rerun()
+        except Exception as e:
+            st.error(f"创建发货失败：{e}")
 
 def split_order_form():
     """订单拆分表单"""
@@ -853,10 +1049,9 @@ def split_order_form():
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT o.*, c.name as customer_name, p.name as product_name
+        SELECT o.*, c.company_name as customer_name
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN products p ON o.product_id = p.id
         WHERE o.id = ?
     """, (st.session_state.split_order_id,))
     selected_order = cursor.fetchone()
@@ -867,35 +1062,26 @@ def split_order_form():
         return
     
     st.write(f"**订单号：** {selected_order[1]}")
-    st.write(f"**客户：** {selected_order[13] if len(selected_order) > 13 else '未知'}")
-    st.write(f"**数量：** {selected_order[4]}")
-    st.write(f"**总金额：** {selected_order[7]:.2f} {selected_order[5]}")
+    st.write(f"**客户：** {selected_order[9] if len(selected_order) > 9 else '未知'}")
+    st.write(f"**总金额：** {selected_order[3]:.2f} {selected_order[4]}")
     
     st.divider()
     
-    split_method = st.radio("拆分方式：", ["按数量拆分", "按金额拆分"], key="split_method")
+    split_method = st.radio("拆分方式：", ["按金额拆分", "按产品拆分"], key="split_method")
     
-    if split_method == "按数量拆分":
-        num_splits = st.number_input("拆分数量（分成几个订单）：", min_value=2, max_value=10, value=2, key="num_splits")
-        quantities = []
-        for i in range(num_splits):
-            qty = st.number_input(f"子订单 {i+1} 数量：", min_value=1, max_value=selected_order[4], value=selected_order[4] // num_splits, key=f"qty_{i}")
-            quantities.append(qty)
-        
-        total_qty = sum(quantities)
-        if total_qty != selected_order[4]:
-            st.warning(f"拆分数量总和（{total_qty}）不等于原订单数量（{selected_order[4]}）")
-    
-    else:
+    if split_method == "按金额拆分":
         num_splits = st.number_input("拆分数量（分成几个订单）：", min_value=2, max_value=10, value=2, key="num_splits_amt")
         amounts = []
         for i in range(num_splits):
-            amt = st.number_input(f"子订单 {i+1} 金额：", min_value=0.01, max_value=selected_order[7], value=selected_order[7] / num_splits, step=0.01, key=f"amt_{i}")
+            amt = st.number_input(f"子订单 {i+1} 金额：", min_value=0.01, max_value=selected_order[3], value=selected_order[3] / num_splits, step=0.01, key=f"amt_{i}")
             amounts.append(amt)
         
         total_amt = sum(amounts)
-        if abs(total_amt - selected_order[7]) > 0.01:
-            st.warning(f"拆分金额总和（{total_amt:.2f}）不等于原订单金额（{selected_order[7]:.2f}）")
+        if abs(total_amt - selected_order[3]) > 0.01:
+            st.warning(f"拆分金额总和（{total_amt:.2f}）不等于原订单金额（{selected_order[3]:.2f}）")
+    
+    else:
+        st.info("按产品拆分功能开发中...")
     
     st.divider()
     
@@ -909,21 +1095,15 @@ def split_order_form():
             
             # 创建子订单
             for i in range(num_splits):
-                if split_method == "按数量拆分":
-                    qty = quantities[i]
-                    price = selected_order[6]
-                    total = qty * price
-                else:
+                if split_method == "按金额拆分":
                     total = amounts[i]
-                    price = selected_order[6]
-                    qty = int(total / price) if price > 0 else 1
                 
                 sub_order_no = f"{selected_order[1]}-{i+1}"
                 
                 cursor.execute("""
-                    INSERT INTO orders (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes, parent_order_id, is_split)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                """, (sub_order_no, selected_order[2], selected_order[3], qty, selected_order[5], price, total, selected_order[8], f"拆分自 {selected_order[1]}", selected_order[0]))
+                    INSERT INTO orders (order_no, customer_id, total_amount, currency, status, notes, parent_order_id, is_split)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """, (sub_order_no, selected_order[2], total, selected_order[4], selected_order[5], f"拆分自 {selected_order[1]}", selected_order[0]))
             
             conn.commit()
             conn.close()
@@ -941,21 +1121,115 @@ def print_orders():
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT o.*, c.name as customer_name, p.name as product_name
+        SELECT o.*, c.company_name as customer_name
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN products p ON o.product_id = p.id
         ORDER BY o.created_at DESC
     """)
     orders = cursor.fetchall()
     conn.close()
     
-    table_content = "<table><tr><th>订单号</th><th>客户</th><th>产品</th><th>数量</th><th>币种</th><th>单价</th><th>总金额</th><th>状态</th><th>创建时间</th></tr>"
+    table_content = "<table><tr><th>订单号</th><th>客户</th><th>总金额</th><th>币种</th><th>状态</th><th>创建时间</th></tr>"
     for order in orders:
-        table_content += f"<tr><td>{order[1]}</td><td>{order[13] if len(order) > 13 else '-'}</td><td>{order[14] if len(order) > 14 else '-'}</td><td>{order[4]}</td><td>{order[5]}</td><td>{order[6]:.2f}</td><td>{order[7]:.2f}</td><td>{order[8]}</td><td>{order[10]}</td></tr>"
+        table_content += f"<tr><td>{order[1]}</td><td>{order[9] if len(order) > 9 else '-'}</td><td>{order[3]:.2f}</td><td>{order[4]}</td><td>{order[5]}</td><td>{order[7]}</td></tr>"
     table_content += "</table>"
     
     return generate_print_content("订单列表", table_content)
+
+def generate_order_pdf(order_id):
+    """生成订单PDF"""
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT o.*, c.company_name as customer_name
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        WHERE o.id = ?
+    """, (order_id,))
+    order = cursor.fetchone()
+    
+    # 获取订单明细
+    cursor.execute("""
+        SELECT oi.*, p.name as product_name
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = ?
+    """, (order_id,))
+    items = cursor.fetchall()
+    conn.close()
+    
+    if not order:
+        return None
+    
+    items_table = ""
+    if items:
+        items_table = "<h3>订单明细</h3><table><tr><th>产品名称</th><th>数量</th><th>单价</th><th>小计</th></tr>"
+        for item in items:
+            subtotal = item[3] * item[4]
+            items_table += f"<tr><td>{item[6]}</td><td>{item[3]}</td><td>{item[4]:.2f}</td><td>{subtotal:.2f}</td></tr>"
+        items_table += "</table>"
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>订单 {order[1]}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; padding: 40px; }}
+            .header {{ text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 20px; margin-bottom: 30px; }}
+            .company-name {{ font-size: 28px; font-weight: bold; color: #2c3e50; }}
+            .order-title {{ font-size: 24px; margin-top: 20px; color: #3498db; }}
+            .info-section {{ margin: 20px 0; }}
+            .info-row {{ display: flex; margin: 10px 0; }}
+            .info-label {{ width: 150px; font-weight: bold; }}
+            .info-value {{ flex: 1; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
+            th {{ background-color: #3498db; color: white; }}
+            .footer {{ margin-top: 50px; text-align: center; color: #7f8c8d; font-size: 12px; border-top: 1px solid #ddd; padding-top: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="company-name">HALO-FIT 外贸有限公司</div>
+            <div class="order-title">订单确认单</div>
+        </div>
+        
+        <div class="info-section">
+            <div class="info-row">
+                <div class="info-label">订单号：</div>
+                <div class="info-value">{order[1]}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">客户名称：</div>
+                <div class="info-value">{order[9] if len(order) > 9 else '-'}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">总金额：</div>
+                <div class="info-value" style="font-size: 20px; font-weight: bold; color: #e74c3c;">{order[3]:.2f} {order[4]}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">状态：</div>
+                <div class="info-value">{order[5]}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">创建时间：</div>
+                <div class="info-value">{order[7]}</div>
+            </div>
+        </div>
+        
+        {items_table}
+        
+        {f'<div class="info-section"><div class="info-label">备注：</div><div class="info-value">{order[6]}</div></div>' if order[6] else ''}
+        
+        <div class="footer">
+            <p>HALO-FIT 外贸进销存系统 - {APP_VERSION}</p>
+            <p>此订单由系统自动生成，如有疑问请联系客服</p>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
 
 def generate_print_content(title, content):
     """生成打印内容"""
@@ -985,10 +1259,10 @@ def generate_print_content(title, content):
     """
     return html_content
 
-# 客户管理页面
+# 客户管理页面（增强）
 def customers_page():
-    """客户管理页面"""
-    st.subheader("👥 客户管理")
+    """客户管理页面（增强）"""
+    st.subheader("👥 客户管理（增强版）")
     
     col1, col2, col3 = st.columns([1, 4, 1])
     
@@ -1023,35 +1297,52 @@ def customers_page():
     conn.close()
     
     if customers:
-        df = pd.DataFrame(customers, columns=['ID', '名称', '联系人', '邮箱', '电话', '地址', '创建时间'])
+        df = pd.DataFrame(customers, columns=['ID', '公司名称', '联系人', '电话', '邮箱', '地址', '跟进业务员', '创建时间'])
         st.dataframe(df, use_container_width=True)
     else:
         st.info("暂无客户数据")
 
 def add_customer_form():
-    """新建客户表单"""
-    name = st.text_input("客户名称：", key="new_customer_name")
-    contact = st.text_input("联系人：", key="new_customer_contact")
+    """新建客户表单（增强）"""
+    company_name = st.text_input("客户公司名称：", key="new_customer_company")
+    contact_person = st.text_input("联系人：", key="new_customer_contact")
+    phone = st.text_input("联系电话：", key="new_customer_phone")
     email = st.text_input("邮箱：", key="new_customer_email")
-    phone = st.text_input("电话：", key="new_customer_phone")
     address = st.text_area("地址：", key="new_customer_address")
     
+    # 获取用户列表作为业务员选项
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM users WHERE role = 'sales' OR role = 'admin'")
+    users = cursor.fetchall()
+    conn.close()
+    
+    salesperson_options = [f"{u[1]} (ID:{u[0]})" for u in users] if users else ["暂无业务员"]
+    salesperson_selected = st.selectbox("跟进业务员：", salesperson_options, key="new_customer_salesperson")
+    
     if st.button("提交客户", type="primary", key="submit_customer"):
-        if not name:
-            st.error("请输入客户名称！")
+        if not company_name:
+            st.error("请输入客户公司名称！")
             return
+        
+        # 提取业务员ID
+        salesperson_id = None
+        salesperson_name = None
+        if users and salesperson_selected != "暂无业务员":
+            salesperson_id = int(salesperson_selected.split("(ID:")[1].rstrip(")"))
+            salesperson_name = salesperson_selected.split(" (ID:")[0]
         
         try:
             conn = sqlite3.connect(db_file)
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO customers (name, contact, email, phone, address)
-                VALUES (?, ?, ?, ?, ?)
-            """, (name, contact, email, phone, address))
+                INSERT INTO customers (company_name, contact_person, phone, email, address, salesperson)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (company_name, contact_person, phone, email, address, salesperson_name))
             conn.commit()
             conn.close()
             
-            log_operation("创建客户", "客户管理", f"创建客户 {name}")
+            log_operation("创建客户", "客户管理", f"创建客户 {company_name}")
             st.success("客户创建成功！")
             st.session_state.show_add_customer = False
             st.rerun()
@@ -1066,17 +1357,40 @@ def print_customers():
     customers = cursor.fetchall()
     conn.close()
     
-    table_content = "<table><tr><th>ID</th><th>客户名称</th><th>联系人</th><th>邮箱</th><th>电话</th><th>地址</th><th>创建时间</th></tr>"
+    table_content = "<table><tr><th>ID</th><th>公司名称</th><th>联系人</th><th>电话</th><th>邮箱</th><th>地址</th><th>跟进业务员</th><th>创建时间</th></tr>"
     for customer in customers:
-        table_content += f"<tr><td>{customer[0]}</td><td>{customer[1]}</td><td>{customer[2] or '-'}</td><td>{customer[3] or '-'}</td><td>{customer[4] or '-'}</td><td>{customer[5] or '-'}</td><td>{customer[6]}</td></tr>"
+        table_content += f"<tr><td>{customer[0]}</td><td>{customer[1]}</td><td>{customer[2] or '-'}</td><td>{customer[3] or '-'}</td><td>{customer[4] or '-'}</td><td>{customer[5] or '-'}</td><td>{customer[6] or '-'}</td><td>{customer[7]}</td></tr>"
     table_content += "</table>"
     
     return generate_print_content("客户列表", table_content)
 
-# 供应商管理页面
+# 发货管理页面
+def shipments_page():
+    """发货管理页面"""
+    st.subheader("🚚 发货管理")
+    
+    # 发货列表
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.*, o.order_no
+        FROM shipments s
+        LEFT JOIN orders o ON s.order_id = o.id
+        ORDER BY s.created_at DESC
+    """)
+    shipments = cursor.fetchall()
+    conn.close()
+    
+    if shipments:
+        df = pd.DataFrame(shipments, columns=['ID', '订单ID', '发货单号', '发货日期', '状态', '备注', '创建时间', '订单号'])
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("暂无发货记录")
+
+# 供应商管理页面（优化）
 def suppliers_page():
-    """供应商管理页面"""
-    st.subheader("🏭 供应商管理")
+    """供应商管理页面（优化）"""
+    st.subheader("🏭 供应商管理（优化版）")
     
     col1, col2, col3 = st.columns([1, 4, 1])
     
@@ -1084,6 +1398,9 @@ def suppliers_page():
         if st.button("➕ 新建供应商", use_container_width=True):
             st.session_state.show_add_supplier = True
             st.rerun()
+    
+    with col2:
+        keyword = st.text_input("搜索供应商：")
     
     # 新建供应商弹窗
     if st.session_state.show_add_supplier:
@@ -1100,51 +1417,64 @@ def suppliers_page():
     # 供应商列表
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM suppliers ORDER BY created_at DESC")
+    
+    if keyword:
+        cursor.execute("""
+            SELECT * FROM suppliers 
+            WHERE company_name LIKE ? OR contact_person LIKE ? OR phone LIKE ?
+            ORDER BY created_at DESC
+        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
+    else:
+        cursor.execute("SELECT * FROM suppliers ORDER BY created_at DESC")
+    
     suppliers = cursor.fetchall()
     conn.close()
     
     if suppliers:
-        df = pd.DataFrame(suppliers, columns=['ID', '名称', '类型', '联系人', '邮箱', '电话', '地址', '创建时间'])
-        st.dataframe(df, use_container_width=True)
+        df = pd.DataFrame(suppliers, columns=['ID', '公司名称', '类型', '联系人', '邮箱', '电话', '地址', '创建时间'])
+        # 隐藏ID列，只在需要时显示
+        st.dataframe(df.drop('ID', axis=1), use_container_width=True)
+        
+        # 显示供应商数量统计
+        st.info(f"📊 供应商总数：{len(suppliers)}")
     else:
         st.info("暂无供应商数据")
 
 def add_supplier_form():
-    """新建供应商表单"""
-    name = st.text_input("供应商名称：", key="new_supplier_name")
+    """新建供应商表单（优化）"""
+    company_name = st.text_input("供应商公司名称：", key="new_supplier_company")
     supplier_type = st.selectbox("类型：", ["成品", "半成品配件"], key="new_supplier_type")
-    contact = st.text_input("联系人：", key="new_supplier_contact")
+    contact_person = st.text_input("联系人：", key="new_supplier_contact")
     email = st.text_input("邮箱：", key="new_supplier_email")
     phone = st.text_input("电话：", key="new_supplier_phone")
     address = st.text_area("地址：", key="new_supplier_address")
     
     if st.button("提交供应商", type="primary", key="submit_supplier"):
-        if not name:
-            st.error("请输入供应商名称！")
+        if not company_name:
+            st.error("请输入供应商公司名称！")
             return
         
         try:
             conn = sqlite3.connect(db_file)
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO suppliers (name, type, contact, email, phone, address)
+                INSERT INTO suppliers (company_name, type, contact_person, email, phone, address)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (name, supplier_type, contact, email, phone, address))
+            """, (company_name, supplier_type, contact_person, email, phone, address))
             conn.commit()
             conn.close()
             
-            log_operation("创建供应商", "供应商管理", f"创建供应商 {name}")
+            log_operation("创建供应商", "供应商管理", f"创建供应商 {company_name}")
             st.success("供应商创建成功！")
             st.session_state.show_add_supplier = False
             st.rerun()
         except Exception as e:
             st.error(f"创建供应商失败：{e}")
 
-# 产品管理页面
+# 产品管理页面（增强）
 def products_page():
-    """产品管理页面"""
-    st.subheader("📦 产品管理")
+    """产品管理页面（增强）"""
+    st.subheader("📦 产品管理（增强版）")
     
     col1, col2, col3 = st.columns([1, 4, 1])
     
@@ -1179,24 +1509,77 @@ def products_page():
     conn.close()
     
     if products:
-        df = pd.DataFrame(products, columns=['ID', '名称', '生产厂家', '厂家型号', '类型', '供应商ID', 'USD价格', 'EUR价格', 'CNY价格', '库存', '库存预警', '创建时间'])
-        st.dataframe(df, use_container_width=True)
+        # 显示产品卡片
+        for product in products:
+            with st.expander(f"📦 {product[1]} (供应商型号：{product[2] or '-'})"):
+                col1, col2 = st.columns([1, 2])
+                
+                with col1:
+                    # 显示产品图片
+                    if product[11]:
+                        image = get_product_image(product[11])
+                        if image:
+                            st.image(image, caption=product[1], width=200)
+                        else:
+                            st.info("📷 暂无图片")
+                    else:
+                        st.info("📷 暂无图片")
+                
+                with col2:
+                    st.write(f"**产品名称：** {product[1]}")
+                    st.write(f"**供应商型号：** {product[2] or '-'}")
+                    st.write(f"**类型：** {product[3]}")
+                    st.write(f"**USD价格：** {product[5]:.2f}")
+                    st.write(f"**EUR价格：** {product[6]:.2f}")
+                    st.write(f"**CNY价格：** {product[7]:.2f}")
+                    st.write(f"**库存：** {product[8]}")
+                    st.write(f"**库存预警：** {product[9]}")
+                    
+                    # 显示产品参数
+                    st.divider()
+                    st.subheader("📋 产品参数")
+                    params_col1, params_col2 = st.columns(2)
+                    
+                    with params_col1:
+                        if product[12]: st.write(f"**功率：** {product[12]}")
+                        if product[13]: st.write(f"**跑带规格-长：** {product[13]}")
+                        if product[14]: st.write(f"**跑带规格-宽：** {product[14]}")
+                        if product[15]: st.write(f"**包装规格：** {product[15]}")
+                        if product[16] is not None: st.write(f"**装货量(40HQ)：** {product[16]}")
+                    
+                    with params_col2:
+                        if product[17] is not None: st.write(f"**装货量(20GP)：** {product[17]}")
+                        if product[18] is not None: st.write(f"**货柜装货数量：** {product[18]}")
+                        if product[19]: st.write(f"**电机功率：** {product[19]}")
+                        if product[20]: st.write(f"**工作电压：** {product[20]}")
+                    
+                    # 显示备注
+                    st.divider()
+                    st.subheader("📝 备注")
+                    remarks = []
+                    for i in range(1, 7):
+                        remark_key = f'remark{i}'
+                        if product[20 + i]:
+                            remarks.append(f"**备注{i}：** {product[20 + i]}")
+                    
+                    if remarks:
+                        for remark in remarks:
+                            st.write(remark)
+                    else:
+                        st.info("暂无备注")
     else:
         st.info("暂无产品数据")
-    
-    st.info("💡 提示：产品详细参数配置栏将在后续版本中添加")
 
 def add_product_form():
-    """新建产品表单"""
-    name = st.text_input("产品名称：", key="new_product_name")
-    manufacturer = st.text_input("生产厂家：", key="new_product_manufacturer")
-    manufacturer_model = st.text_input("厂家型号：", key="new_product_model")
+    """新建产品表单（增强）"""
+    name = st.text_input("产品名称（我司内部型号）：", key="new_product_name")
+    supplier_model = st.text_input("供应商型号：", key="new_product_supplier_model")
     product_type = st.selectbox("类型：", ["成品", "半成品配件"], key="new_product_type")
     
     # 获取供应商列表
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM suppliers")
+    cursor.execute("SELECT id, company_name FROM suppliers")
     suppliers = cursor.fetchall()
     conn.close()
     
@@ -1209,6 +1592,37 @@ def add_product_form():
     stock = st.number_input("库存数量：", min_value=0, value=0, key="new_product_stock")
     stock_warning = st.number_input("库存预警值：", min_value=0, value=10, key="new_product_warning")
     
+    # 产品图片上传
+    st.divider()
+    st.subheader("📷 产品图片")
+    image_file = st.file_uploader("上传产品图片：", type=['jpg', 'jpeg', 'png'], key="new_product_image")
+    if image_file:
+        st.image(image_file, caption="预览", width=200)
+    
+    # 产品参数
+    st.divider()
+    st.subheader("📋 产品参数")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        power = st.text_input("功率：", key="new_product_power")
+        running_belt_length = st.text_input("跑带规格-长：", key="new_product_rb_length")
+        running_belt_width = st.text_input("跑带规格-宽：", key="new_product_rb_width")
+        package_spec = st.text_input("包装规格：", key="new_product_package")
+        load_40hq = st.number_input("装货量(40HQ)：", min_value=0, value=0, key="new_product_40hq")
+    
+    with col2:
+        load_20gp = st.number_input("装货量(20GP)：", min_value=0, value=0, key="new_product_20gp")
+        container_quantity = st.number_input("货柜装货数量：", min_value=0, value=0, key="new_product_container_qty")
+        motor_power = st.text_input("电机功率：", key="new_product_motor")
+        working_voltage = st.text_input("工作电压：", key="new_product_voltage")
+    
+    # 备注
+    st.divider()
+    st.subheader("📝 备注")
+    for i in range(1, 7):
+        st.text_input(f"备注{i}：", key=f"new_product_remark{i}")
+    
     if st.button("提交产品", type="primary", key="submit_product"):
         if not name:
             st.error("请输入产品名称！")
@@ -1219,13 +1633,30 @@ def add_product_form():
         if suppliers and supplier_selected != "暂无供应商":
             supplier_id = int(supplier_selected.split("(ID:")[1].rstrip(")"))
         
+        # 获取备注
+        remarks = {}
+        for i in range(1, 7):
+            remarks[f'remark{i}'] = st.session_state.get(f'new_product_remark{i}', '')
+        
         try:
             conn = sqlite3.connect(db_file)
             cursor = conn.cursor()
+            
+            # 先插入产品（获取ID）
             cursor.execute("""
-                INSERT INTO products (name, manufacturer, manufacturer_model, type, supplier_id, price_usd, price_eur, price_cny, stock, stock_warning)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (name, manufacturer, manufacturer_model, product_type, supplier_id, price_usd, price_eur, price_cny, stock, stock_warning))
+                INSERT INTO products (name, supplier_model, type, supplier_id, price_usd, price_eur, price_cny, stock, stock_warning, power, running_belt_length, running_belt_width, package_spec, load_40hq, load_20gp, container_quantity, motor_power, working_voltage, remark1, remark2, remark3, remark4, remark5, remark6)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, supplier_model, product_type, supplier_id, price_usd, price_eur, price_cny, stock, stock_warning, power, running_belt_length, running_belt_width, package_spec, load_40hq, load_20gp, container_quantity, motor_power, working_voltage, remarks['remark1'], remarks['remark2'], remarks['remark3'], remarks['remark4'], remarks['remark5'], remarks['remark6']))
+            
+            product_id = cursor.lastrowid
+            
+            # 保存图片
+            image_path = None
+            if image_file:
+                image_path = save_product_image(image_file, product_id)
+                if image_path:
+                    cursor.execute("UPDATE products SET image_path = ? WHERE id = ?", (image_path, product_id))
+            
             conn.commit()
             conn.close()
             
@@ -1240,13 +1671,13 @@ def print_products():
     """打印产品列表"""
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
+    cursor.execute("SELECT id, name, supplier_model, type, price_usd, price_eur, price_cny, stock, stock_warning, created_at FROM products ORDER BY created_at DESC")
     products = cursor.fetchall()
     conn.close()
     
-    table_content = "<table><tr><th>ID</th><th>产品名称</th><th>生产厂家</th><th>厂家型号</th><th>类型</th><th>USD价格</th><th>EUR价格</th><th>CNY价格</th><th>库存</th><th>库存预警</th><th>创建时间</th></tr>"
+    table_content = "<table><tr><th>ID</th><th>产品名称</th><th>供应商型号</th><th>类型</th><th>USD价格</th><th>EUR价格</th><th>CNY价格</th><th>库存</th><th>库存预警</th><th>创建时间</th></tr>"
     for product in products:
-        table_content += f"<tr><td>{product[0]}</td><td>{product[1]}</td><td>{product[2] or '-'}</td><td>{product[3] or '-'}</td><td>{product[4]}</td><td>{product[6]:.2f}</td><td>{product[7]:.2f}</td><td>{product[8]:.2f}</td><td>{product[9]}</td><td>{product[10]}</td><td>{product[11]}</td></tr>"
+        table_content += f"<tr><td>{product[0]}</td><td>{product[1]}</td><td>{product[2] or '-'}</td><td>{product[3]}</td><td>{product[4]:.2f}</td><td>{product[5]:.2f}</td><td>{product[6]:.2f}</td><td>{product[7]}</td><td>{product[8]}</td><td>{product[9]}</td></tr>"
     table_content += "</table>"
     
     return generate_print_content("产品列表", table_content)
@@ -1300,13 +1731,13 @@ def inventory_page():
     
     # 显示库存警告
     st.subheader("库存预警")
-    warning_products = [p for p in products if p[9] <= p[10]]
+    warning_products = [p for p in products if p[8] <= p[9]]
     if warning_products:
         for p in warning_products:
-            st.warning(f"⚠️ {p[1]} - 当前库存：{p[9]}，预警值：{p[10]}")
+            st.warning(f"⚠️ {p[1]} - 当前库存：{p[8]}，预警值：{p[9]}")
             # 发送库存预警通知
             if st.session_state.user:
-                add_notification(st.session_state.user[0], "warning", "库存预警", f"{p[1]} 库存不足！当前库存：{p[9]}")
+                add_notification(st.session_state.user[0], "warning", "库存预警", f"{p[1]} 库存不足！当前库存：{p[8]}")
     else:
         st.success("✅ 所有产品库存正常")
     
@@ -1314,8 +1745,8 @@ def inventory_page():
     st.subheader("库存列表")
     
     if products:
-        df = pd.DataFrame(products, columns=['ID', '名称', '生产厂家', '厂家型号', '类型', '供应商ID', 'USD价格', 'EUR价格', 'CNY价格', '库存', '库存预警', '创建时间'])
-        st.dataframe(df, use_container_width=True)
+        df = pd.DataFrame(products, columns=['ID', '名称', '供应商型号', '类型', '供应商ID', 'USD价格', 'EUR价格', 'CNY价格', '库存', '库存预警', '图片路径', '功率', '跑带长', '跑带宽', '包装规格', '40HQ装货量', '20GP装货量', '货柜装货数', '电机功率', '工作电压', '备注1', '备注2', '备注3', '备注4', '备注5', '备注6', '创建时间'])
+        st.dataframe(df[['名称', '供应商型号', '类型', 'USD价格', 'EUR价格', 'CNY价格', '库存', '库存预警']], use_container_width=True)
     else:
         st.info("暂无产品数据")
     
@@ -1451,24 +1882,24 @@ def print_inventory():
     """打印库存报表"""
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
+    cursor.execute("SELECT id, name, type, stock, stock_warning FROM products ORDER BY created_at DESC")
     products = cursor.fetchall()
     conn.close()
     
-    warning_products = [p for p in products if p[9] <= p[10]]
+    warning_products = [p for p in products if p[3] <= p[4]]
     
     warning_content = ""
     if warning_products:
         warning_content = "<h3 style='color: #e74c3c;'>⚠️ 库存预警</h3><ul>"
         for p in warning_products:
-            warning_content += f"<li>{p[1]} - 当前库存：{p[9]}，预警值：{p[10]}</li>"
+            warning_content += f"<li>{p[1]} - 当前库存：{p[3]}，预警值：{p[4]}</li>"
         warning_content += "</ul>"
     
     table_content = "<table><tr><th>ID</th><th>产品名称</th><th>类型</th><th>库存</th><th>库存预警</th><th>状态</th></tr>"
     for product in products:
-        status = "⚠️ 预警" if product[9] <= product[10] else "✅ 正常"
-        status_color = "#e74c3c" if product[9] <= product[10] else "#27ae60"
-        table_content += f"<tr><td>{product[0]}</td><td>{product[1]}</td><td>{product[4]}</td><td>{product[9]}</td><td>{product[10]}</td><td style='color: {status_color};'>{status}</td></tr>"
+        status = "⚠️ 预警" if product[3] <= product[4] else "✅ 正常"
+        status_color = "#e74c3c" if product[3] <= product[4] else "#27ae60"
+        table_content += f"<tr><td>{product[0]}</td><td>{product[1]}</td><td>{product[2]}</td><td>{product[3]}</td><td>{product[4]}</td><td style='color: {status_color};'>{status}</td></tr>"
     table_content += "</table>"
     
     return generate_print_content("库存报表", warning_content + table_content)
@@ -1638,7 +2069,7 @@ def reports_page():
         
         # Top 10 客户
         cursor.execute("""
-            SELECT c.name, SUM(o.total_amount) as total, COUNT(o.id) as order_count
+            SELECT c.company_name, SUM(o.total_amount) as total, COUNT(o.id) as order_count
             FROM customers c
             LEFT JOIN orders o ON c.id = o.customer_id
             WHERE DATE(o.created_at) BETWEEN ? AND ? OR o.id IS NULL
@@ -1661,9 +2092,10 @@ def reports_page():
         
         # Top 10 产品
         cursor.execute("""
-            SELECT p.name, SUM(o.total_amount) as total, COUNT(o.id) as order_count, SUM(o.quantity) as total_quantity
+            SELECT p.name, SUM(o.total_amount) as total, COUNT(o.id) as order_count, SUM(oi.quantity) as total_quantity
             FROM products p
-            LEFT JOIN orders o ON p.id = o.product_id
+            LEFT JOIN order_items oi ON p.id = oi.product_id
+            LEFT JOIN orders o ON oi.order_id = o.id
             WHERE DATE(o.created_at) BETWEEN ? AND ? OR o.id IS NULL
             GROUP BY p.id
             ORDER BY total DESC
@@ -1685,7 +2117,8 @@ def reports_page():
         cursor.execute("""
             SELECT p.name, p.stock
             FROM products p
-            LEFT JOIN orders o ON p.id = o.product_id AND DATE(o.created_at) BETWEEN ? AND ?
+            LEFT JOIN order_items oi ON p.id = oi.product_id
+            LEFT JOIN orders o ON oi.order_id = o.id AND DATE(o.created_at) BETWEEN ? AND ?
             WHERE o.id IS NULL
             ORDER BY p.stock DESC
         """, (start_date, end_date))
@@ -1945,6 +2378,8 @@ def main_page():
         products_page()
     elif st.session_state.page == 'inventory':
         inventory_page()
+    elif st.session_state.page == 'shipments':
+        shipments_page()
     elif st.session_state.page == 'customs':
         customs_page()
     elif st.session_state.page == 'reports':
