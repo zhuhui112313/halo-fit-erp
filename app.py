@@ -411,11 +411,17 @@ def orders_page():
     
     # 弹窗新建订单
     if st.session_state.show_add_order:
-        with st.expander("📝 新建订单", expanded=True):
-            add_order_form()
-            if st.button("取消"):
+        st.markdown("---")
+        st.markdown("<div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 2px solid #3498db;'>", unsafe_allow_html=True)
+        st.subheader("📝 新建订单")
+        add_order_form()
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("❌ 取消", use_container_width=True):
                 st.session_state.show_add_order = False
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
     
     # 订单列表
     conn = sqlite3.connect(db_file)
@@ -544,11 +550,17 @@ def customers_page():
     
     # 弹窗新建客户
     if st.session_state.show_add_customer:
-        with st.expander("➕ 新建客户", expanded=True):
-            add_customer_form()
-            if st.button("取消"):
+        st.markdown("---")
+        st.markdown("<div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 2px solid #3498db;'>", unsafe_allow_html=True)
+        st.subheader("➕ 新建客户")
+        add_customer_form()
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("❌ 取消", use_container_width=True):
                 st.session_state.show_add_customer = False
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
     
     # 客户列表
     conn = sqlite3.connect(db_file)
@@ -611,11 +623,17 @@ def products_page():
     
     # 弹窗新建产品
     if st.session_state.show_add_product:
-        with st.expander("➕ 新建产品", expanded=True):
-            add_product_form()
-            if st.button("取消"):
+        st.markdown("---")
+        st.markdown("<div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 2px solid #3498db;'>", unsafe_allow_html=True)
+        st.subheader("➕ 新建产品")
+        add_product_form()
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("❌ 取消", use_container_width=True):
                 st.session_state.show_add_product = False
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
     
     # 产品列表
     conn = sqlite3.connect(db_file)
@@ -824,17 +842,25 @@ def inventory_page():
     
     # 库存操作弹窗
     if st.session_state.show_inventory_action:
-        with st.expander("📦 库存操作", expanded=True):
-            if st.session_state.show_inventory_action == 'in':
-                inventory_in_form()
-            elif st.session_state.show_inventory_action == 'out':
-                inventory_out_form()
-            elif st.session_state.show_inventory_action == 'log':
-                inventory_log_form()
-            
-            if st.button("关闭"):
+        st.markdown("---")
+        st.markdown("<div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 2px solid #3498db;'>", unsafe_allow_html=True)
+        if st.session_state.show_inventory_action == 'in':
+            st.subheader("📥 入库操作")
+            inventory_in_form()
+        elif st.session_state.show_inventory_action == 'out':
+            st.subheader("📤 出库操作")
+            inventory_out_form()
+        elif st.session_state.show_inventory_action == 'log':
+            st.subheader("📋 库存日志")
+            inventory_log_form()
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("❌ 关闭", use_container_width=True):
                 st.session_state.show_inventory_action = False
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
 
 def inventory_in_form():
     """入库表单"""
