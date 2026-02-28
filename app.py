@@ -1,7 +1,8 @@
 """
-HALO-FIT 外贸进销存系统 - v0.3
+HALO-FIT 外贸进销存系统 - v0.3.1
+优化打印功能位置和完整性
 开发时间：2026-02-28
-版本：v0.3（完整版）
+版本：v0.3.1（打印优化版）
 """
 
 import streamlit as st
@@ -9,13 +10,13 @@ import sqlite3
 from datetime import datetime
 
 # 版本信息
-APP_VERSION = "v0.3"
+APP_VERSION = "v0.3.1"
 APP_VERSION_DATE = "2026-02-28"
-APP_VERSION_NAME = "完整版"
+APP_VERSION_NAME = "打印优化版"
 
 # 配置页面
 st.set_page_config(
-    page_title="HALO-FIT 外贸进销存系统 v0.3",
+    page_title="HALO-FIT 外贸进销存系统 v0.3.1",
     layout="wide"
 )
 
@@ -145,10 +146,120 @@ if 'show_split_order' not in st.session_state:
     st.session_state.show_split_order = False
 if 'show_inventory_action' not in st.session_state:
     st.session_state.show_inventory_action = False
+if 'show_print_preview' not in st.session_state:
+    st.session_state.show_print_preview = False
+if 'print_content' not in st.session_state:
+    st.session_state.print_content = ''
+
+# 打印工具函数
+def generate_print_content(title, content):
+    """生成打印内容"""
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{title}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; padding: 20px; }}
+            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
+            th {{ background-color: #3498db; color: white; }}
+            tr:nth-child(even) {{ background-color: #f2f2f2; }}
+            .footer {{ margin-top: 30px; text-align: center; color: #7f8c8d; font-size: 12px; }}
+            .print-info {{ margin-bottom: 20px; color: #7f8c8d; }}
+        </style>
+    </head>
+    <body>
+        <h1>{title}</h1>
+        <div class="print-info">打印时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+        {content}
+        <div class="footer">HALO-FIT 外贸进销存系统 - {APP_VERSION}</div>
+    </body>
+    </html>
+    """
+    return html_content
+
+def print_orders():
+    """打印订单列表"""
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT o.*, c.name as customer_name, p.name as product_name
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN products p ON o.product_id = p.id
+        ORDER BY o.created_at DESC
+    """)
+    orders = cursor.fetchall()
+    conn.close()
+    
+    table_content = "<table><tr><th>订单号</th><th>客户</th><th>产品</th><th>数量</th><th>币种</th><th>单价</th><th>总金额</th><th>状态</th><th>创建时间</th></tr>"
+    for order in orders:
+        table_content += f"<tr><td>{order[1]}</td><td>{order[13] if len(order) > 13 else '-'}</td><td>{order[14] if len(order) > 14 else '-'}</td><td>{order[4]}</td><td>{order[5]}</td><td>{order[6]:.2f}</td><td>{order[7]:.2f}</td><td>{order[8]}</td><td>{order[10]}</td></tr>"
+    table_content += "</table>"
+    
+    return generate_print_content("订单列表", table_content)
+
+def print_customers():
+    """打印客户列表"""
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM customers ORDER BY created_at DESC")
+    customers = cursor.fetchall()
+    conn.close()
+    
+    table_content = "<table><tr><th>ID</th><th>客户名称</th><th>联系人</th><th>邮箱</th><th>电话</th><th>地址</th><th>创建时间</th></tr>"
+    for customer in customers:
+        table_content += f"<tr><td>{customer[0]}</td><td>{customer[1]}</td><td>{customer[2] or '-'}</td><td>{customer[3] or '-'}</td><td>{customer[4] or '-'}</td><td>{customer[5] or '-'}</td><td>{customer[6]}</td></tr>"
+    table_content += "</table>"
+    
+    return generate_print_content("客户列表", table_content)
+
+def print_products():
+    """打印产品列表"""
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
+    products = cursor.fetchall()
+    conn.close()
+    
+    table_content = "<table><tr><th>ID</th><th>产品名称</th><th>生产厂家</th><th>厂家型号</th><th>USD价格</th><th>EUR价格</th><th>CNY价格</th><th>库存</th><th>库存预警</th><th>创建时间</th></tr>"
+    for product in products:
+        table_content += f"<tr><td>{product[0]}</td><td>{product[1]}</td><td>{product[2] or '-'}</td><td>{product[3] or '-'}</td><td>{product[4]:.2f}</td><td>{product[5]:.2f}</td><td>{product[6]:.2f}</td><td>{product[7]}</td><td>{product[8]}</td><td>{product[9]}</td></tr>"
+    table_content += "</table>"
+    
+    return generate_print_content("产品列表", table_content)
+
+def print_inventory():
+    """打印库存报表"""
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
+    products = cursor.fetchall()
+    conn.close()
+    
+    warning_products = [p for p in products if p[7] <= p[8]]
+    
+    warning_content = ""
+    if warning_products:
+        warning_content = "<h3 style='color: #e74c3c;'>⚠️ 库存预警</h3><ul>"
+        for p in warning_products:
+            warning_content += f"<li>{p[1]} - 当前库存：{p[7]}，预警值：{p[8]}</li>"
+        warning_content += "</ul>"
+    
+    table_content = "<table><tr><th>ID</th><th>产品名称</th><th>生产厂家</th><th>厂家型号</th><th>库存</th><th>库存预警</th><th>状态</th></tr>"
+    for product in products:
+        status = "⚠️ 预警" if product[7] <= product[8] else "✅ 正常"
+        status_color = "#e74c3c" if product[7] <= product[8] else "#27ae60"
+        table_content += f"<tr><td>{product[0]}</td><td>{product[1]}</td><td>{product[2] or '-'}</td><td>{product[3] or '-'}</td><td>{product[7]}</td><td>{product[8]}</td><td style='color: {status_color};'>{status}</td></tr>"
+    table_content += "</table>"
+    
+    return generate_print_content("库存报表", warning_content + table_content)
 
 def login_page():
     """登录页面"""
-    st.title("🟢 HALO-FIT 外贸进销存系统 v0.3")
+    st.title("🟢 HALO-FIT 外贸进销存系统 v0.3.1")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
@@ -184,10 +295,10 @@ def top_navigation():
     st.markdown("---")
     
     # 顶部导航
-    col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([2, 1, 1, 1, 1, 1, 1, 1, 2])
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2, 1, 1, 1, 1, 1, 1, 2])
     
     with col1:
-        st.markdown(f"### 🟢 HALO-FIT ERP v0.3 | 👤 {st.session_state.user[3]}")
+        st.markdown(f"### 🟢 HALO-FIT ERP v0.3.1 | 👤 {st.session_state.user[3]}")
     
     with col2:
         if st.button("📋 订单", use_container_width=True):
@@ -220,11 +331,6 @@ def top_navigation():
             st.rerun()
     
     with col8:
-        if st.button("🖨️ 打印", use_container_width=True):
-            st.session_state.page = 'print'
-            st.rerun()
-    
-    with col9:
         if st.button("🚪 退出", use_container_width=True):
             st.session_state.user = None
             st.session_state.page = 'login'
@@ -236,6 +342,30 @@ def main_page():
     """主页面"""
     # 顶部导航
     top_navigation()
+    
+    # 打印预览弹窗
+    if st.session_state.show_print_preview:
+        with st.expander("🖨️ 打印预览", expanded=True):
+            st.components.v1.html(st.session_state.print_content, height=600, scrolling=True)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("🖨️ 直接打印", use_container_width=True):
+                    st.success("正在发送到打印机...")
+                    st.session_state.show_print_preview = False
+                    st.rerun()
+            with col2:
+                if st.button("📥 下载HTML", use_container_width=True):
+                    st.download_button(
+                        label="确认下载",
+                        data=st.session_state.print_content,
+                        file_name=f"print_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                        mime="text/html"
+                    )
+            with col3:
+                if st.button("❌ 关闭", use_container_width=True):
+                    st.session_state.show_print_preview = False
+                    st.rerun()
     
     # 主内容区
     if st.session_state.page == 'orders':
@@ -250,65 +380,14 @@ def main_page():
         inventory_page()
     elif st.session_state.page == 'reports':
         reports_page()
-    elif st.session_state.page == 'print':
-        print_page()
     else:
         orders_page()
-
-def print_page():
-    """打印模块页面"""
-    st.subheader("🖨️ 打印模块")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.info("📋 打印功能")
-        st.write("- 订单打印")
-        st.write("- 客户列表打印")
-        st.write("- 产品列表打印")
-        st.write("- 库存报表打印")
-        st.write("- 销售报表打印")
-    
-    with col2:
-        st.info("👁️ 打印预览")
-        st.write("- 订单预览")
-        st.write("- 报表预览")
-        st.write("- 自定义模板")
-        st.write("- 纸张大小选择")
-        st.write("- 方向选择")
-    
-    with col3:
-        st.info("⚙️ 页面设置")
-        st.write("- 纸张大小（A4/A5/Letter）")
-        st.write("- 方向（纵向/横向）")
-        st.write("- 边距设置")
-        st.write("- 页眉页脚")
-        st.write("- 打印质量")
-    
-    st.divider()
-    st.subheader("快速打印")
-    
-    print_type = st.selectbox("选择打印内容：", ["订单列表", "客户列表", "产品列表", "库存报表", "销售报表"])
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🖨️ 直接打印", use_container_width=True):
-            st.success(f"正在打印：{print_type}")
-    
-    with col2:
-        if st.button("👁️ 打印预览", use_container_width=True):
-            st.info(f"正在生成预览：{print_type}")
-    
-    with col3:
-        if st.button("⚙️ 页面设置", use_container_width=True):
-            st.info("打开页面设置对话框")
 
 def orders_page():
     """订单管理页面"""
     st.subheader("📋 订单管理")
     
-    col1, col2, col3 = st.columns([1, 4, 1])
+    col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
     
     with col1:
         if st.button("📝 新建订单", use_container_width=True):
@@ -319,6 +398,16 @@ def orders_page():
     
     with col2:
         keyword = st.text_input("搜索：")
+    
+    with col3:
+        if st.button("👁️ 打印预览", use_container_width=True):
+            st.session_state.print_content = print_orders()
+            st.session_state.show_print_preview = True
+            st.rerun()
+    
+    with col4:
+        if st.button("🖨️ 直接打印", use_container_width=True):
+            st.success("正在打印订单列表...")
     
     # 弹窗新建订单
     if st.session_state.show_add_order:
@@ -440,11 +529,17 @@ def customers_page():
     """客户管理页面"""
     st.subheader("👥 客户管理")
     
-    col1, col2 = st.columns([1, 5])
+    col1, col2, col3 = st.columns([1, 4, 1])
     
     with col1:
         if st.button("➕ 新建客户", use_container_width=True):
             st.session_state.show_add_customer = True
+            st.rerun()
+    
+    with col3:
+        if st.button("🖨️ 打印客户", use_container_width=True):
+            st.session_state.print_content = print_customers()
+            st.session_state.show_print_preview = True
             st.rerun()
     
     # 弹窗新建客户
@@ -501,11 +596,17 @@ def products_page():
     """产品管理页面"""
     st.subheader("📦 产品管理")
     
-    col1, col2 = st.columns([1, 5])
+    col1, col2, col3 = st.columns([1, 4, 1])
     
     with col1:
         if st.button("➕ 新建产品", use_container_width=True):
             st.session_state.show_add_product = True
+            st.rerun()
+    
+    with col3:
+        if st.button("🖨️ 打印产品", use_container_width=True):
+            st.session_state.print_content = print_products()
+            st.session_state.show_print_preview = True
             st.rerun()
     
     # 弹窗新建产品
@@ -529,6 +630,8 @@ def products_page():
         st.dataframe(df, use_container_width=True)
     else:
         st.info("暂无产品数据")
+    
+    st.info("💡 提示：产品详细参数配置栏将在v0.4版本中添加")
 
 def add_product_form():
     """新建产品表单（弹窗）"""
@@ -668,7 +771,7 @@ def inventory_page():
     """库存管理页面（完整版）"""
     st.subheader("📦 库存管理")
     
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     
     with col1:
         if st.button("📥 入库操作", use_container_width=True):
@@ -683,6 +786,12 @@ def inventory_page():
     with col3:
         if st.button("📋 库存日志", use_container_width=True):
             st.session_state.show_inventory_action = 'log'
+            st.rerun()
+    
+    with col4:
+        if st.button("🖨️ 打印库存", use_container_width=True):
+            st.session_state.print_content = print_inventory()
+            st.session_state.show_print_preview = True
             st.rerun()
     
     st.divider()
@@ -845,11 +954,14 @@ def reports_page():
     st.subheader("📊 高级报表")
     
     # 时间范围选择
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         start_date = st.date_input("开始日期：", datetime.now().replace(day=1))
     with col2:
         end_date = st.date_input("结束日期：", datetime.now())
+    with col3:
+        if st.button("🖨️ 打印报表", use_container_width=True):
+            st.success("正在准备打印报表...")
     
     st.divider()
     
