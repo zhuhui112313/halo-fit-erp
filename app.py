@@ -1,15 +1,11 @@
 """
-HALO-FIT 外贸进销存系统 - 核心增强版 v0.2
-开发时间：2026-02-28
-版本：v0.2（核心增强版）
+HALO-FIT 外贸进销存系统 - v0.2
+稳定版本
 """
 
 import streamlit as st
 import sqlite3
-import pandas as pd
 from datetime import datetime
-import csv
-from io import StringIO
 
 # 版本信息
 APP_VERSION = "v0.2"
@@ -19,8 +15,7 @@ APP_VERSION_NAME = "核心增强版"
 # 配置页面
 st.set_page_config(
     page_title="HALO-FIT 外贸进销存系统 v0.2",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # 数据库文件
@@ -82,23 +77,7 @@ def init_db():
             total_amount REAL NOT NULL,
             status TEXT DEFAULT '待处理',
             notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            parent_order_id INTEGER,
-            is_split BOOLEAN DEFAULT 0
-        )
-    """)
-    
-    # 库存日志表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS inventory_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER,
-            quantity_change INTEGER,
-            type TEXT,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
@@ -108,27 +87,25 @@ def init_db():
     conn.commit()
     conn.close()
 
-# 会话状态
+# 会话状态初始化
 if 'user' not in st.session_state:
     st.session_state.user = None
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'login'
+if 'page' not in st.session_state:
+    st.session_state.page = 'login'
 
-def login():
+def login_page():
     """登录页面"""
     st.title("🟢 HALO-FIT 外贸进销存系统 v0.2")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        with st.form("login_form"):
-            username = st.text_input("用户名：")
-            password = st.text_input("密码：", type="password")
-            login_button = st.form_submit_button("登录")
+        st.subheader("用户登录")
         
-        st.info("默认账号：admin / admin123")
+        username = st.text_input("用户名：")
+        password = st.text_input("密码：", type="password")
         
-        if login_button:
+        if st.button("登录", type="primary", use_container_width=True):
             if not username or not password:
                 st.error("请输入用户名和密码")
                 return
@@ -141,84 +118,70 @@ def login():
             
             if user:
                 st.session_state.user = user
-                st.session_state.current_page = 'dashboard'
+                st.session_state.page = 'dashboard'
                 st.success("登录成功！")
                 st.rerun()
             else:
                 st.error("用户名或密码错误")
+        
+        st.info("默认账号：admin / admin123")
 
-def logout():
-    """退出登录"""
-    st.session_state.user = None
-    st.session_state.current_page = 'login'
-    st.success("已退出登录")
-    st.rerun()
-
-def show_dashboard():
-    """主界面"""
-    st.session_state.current_page = 'dashboard'
-    
-    # 侧边栏导航
+def main_page():
+    """主页面"""
+    # 侧边栏
     with st.sidebar:
         st.title("🟢 HALO-FIT ERP v0.2")
         st.write(f"👤 {st.session_state.user[3]}")
         st.divider()
         
-        # 显示版本信息
-        st.caption(f"📋 当前版本：{APP_VERSION}")
-        st.caption(f"📅 发布日期：{APP_VERSION_DATE}")
-        st.caption(f"🏷️ 版本名称：{APP_VERSION_NAME}")
+        st.caption(f"📋 版本：{APP_VERSION}")
+        st.caption(f"📅 日期：{APP_VERSION_DATE}")
         st.divider()
         
         if st.button("📋 订单管理", use_container_width=True):
-            st.session_state.current_page = 'orders'
+            st.session_state.page = 'orders'
         if st.button("👥 客户管理", use_container_width=True):
-            st.session_state.current_page = 'customers'
+            st.session_state.page = 'customers'
         if st.button("📦 产品管理", use_container_width=True):
-            st.session_state.current_page = 'products'
+            st.session_state.page = 'products'
         if st.button("🔄 订单拆分", use_container_width=True):
-            st.session_state.current_page = 'split'
+            st.session_state.page = 'split'
         if st.button("📊 销售统计", use_container_width=True):
-            st.session_state.current_page = 'stats'
+            st.session_state.page = 'stats'
         if st.button("📦 库存管理", use_container_width=True):
-            st.session_state.current_page = 'inventory'
+            st.session_state.page = 'inventory'
         if st.button("📊 高级报表", use_container_width=True):
-            st.session_state.current_page = 'reports'
+            st.session_state.page = 'reports'
         if st.button("🚪 退出", use_container_width=True):
-            logout()
+            st.session_state.user = None
+            st.session_state.page = 'login'
+            st.rerun()
         
         st.divider()
-        st.write("---")
         st.write("v0.2 新功能：")
         st.write("✅ 订单拆分")
         st.write("✅ 库存管理")
         st.write("✅ 高级报表")
     
-    # 根据当前页面显示内容
-    if st.session_state.current_page == 'orders':
-        show_orders_page()
-    elif st.session_state.current_page == 'customers':
-        show_customers_page()
-    elif st.session_state.current_page == 'products':
-        show_products_page()
-    elif st.session_state.current_page == 'split':
-        show_split_page()
-    elif st.session_state.current_page == 'inventory':
-        show_inventory_page()
-    elif st.session_state.current_page == 'stats':
-        show_stats_page()
-    elif st.session_state.current_page == 'reports':
-        show_reports_page()
-    elif st.session_state.current_page == 'add_order':
-        show_add_order_page()
-    elif st.session_state.current_page == 'add_customer':
-        show_add_customer_page()
-    elif st.session_state.current_page == 'add_product':
-        show_add_product_page()
+    # 主内容区
+    if st.session_state.page == 'orders':
+        orders_page()
+    elif st.session_state.page == 'customers':
+        customers_page()
+    elif st.session_state.page == 'products':
+        products_page()
+    elif st.session_state.page == 'split':
+        split_page()
+    elif st.session_state.page == 'inventory':
+        inventory_page()
+    elif st.session_state.page == 'stats':
+        stats_page()
+    elif st.session_state.page == 'reports':
+        reports_page()
     else:
-        show_orders_page()
+        orders_page()
 
-def show_orders_page():
+def orders_page():
     """订单管理页面"""
     st.subheader("📋 订单管理")
     
@@ -226,16 +189,12 @@ def show_orders_page():
     
     with col1:
         if st.button("📝 新建订单", use_container_width=True):
-            st.session_state.current_page = 'add_order'
+            st.session_state.page = 'add_order'
         if st.button("🔄 刷新", use_container_width=True):
             st.rerun()
     
     with col2:
         keyword = st.text_input("搜索：")
-    
-    with col3:
-        if st.button("📤 导出 CSV", use_container_width=True):
-            export_orders()
     
     # 订单列表
     conn = sqlite3.connect(db_file)
@@ -262,27 +221,21 @@ def show_orders_page():
     orders = cursor.fetchall()
     conn.close()
     
-    # 显示订单列表
     if orders:
         for order in orders:
             with st.expander(f"订单号：{order[1]} - 客户：{order[13] if len(order) > 13 else '未知'} - 金额：{order[7]:.2f} {order[5]}"):
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    st.write(f"ID：{order[0]}")
-                    st.write(f"产品：{order[14] if len(order) > 14 else '未知'}")
-                    st.write(f"数量：{order[4]}")
-                    st.write(f"单价：{order[6]:.2f}")
-                    st.write(f"状态：{order[8]}")
-                    st.write(f"创建时间：{order[10]}")
-                
-                with col2:
-                    if order[9]:
-                        st.info(f"备注：{order[9]}")
+                st.write(f"ID：{order[0]}")
+                st.write(f"产品：{order[14] if len(order) > 14 else '未知'}")
+                st.write(f"数量：{order[4]}")
+                st.write(f"单价：{order[6]:.2f}")
+                st.write(f"状态：{order[8]}")
+                st.write(f"创建时间：{order[10]}")
+                if order[9]:
+                    st.info(f"备注：{order[9]}")
     else:
         st.info("暂无订单数据")
 
-def show_customers_page():
+def customers_page():
     """客户管理页面"""
     st.subheader("👥 客户管理")
     
@@ -290,7 +243,7 @@ def show_customers_page():
     
     with col1:
         if st.button("➕ 新建客户", use_container_width=True):
-            st.session_state.current_page = 'add_customer'
+            st.session_state.page = 'add_customer'
     
     # 客户列表
     conn = sqlite3.connect(db_file)
@@ -300,12 +253,13 @@ def show_customers_page():
     conn.close()
     
     if customers:
+        import pandas as pd
         df = pd.DataFrame(customers, columns=['ID', '名称', '联系人', '邮箱', '电话', '地址', '创建时间'])
         st.dataframe(df, use_container_width=True)
     else:
         st.info("暂无客户数据")
 
-def show_products_page():
+def products_page():
     """产品管理页面"""
     st.subheader("📦 产品管理")
     
@@ -313,7 +267,7 @@ def show_products_page():
     
     with col1:
         if st.button("➕ 新建产品", use_container_width=True):
-            st.session_state.current_page = 'add_product'
+            st.session_state.page = 'add_product'
     
     # 产品列表
     conn = sqlite3.connect(db_file)
@@ -323,12 +277,13 @@ def show_products_page():
     conn.close()
     
     if products:
+        import pandas as pd
         df = pd.DataFrame(products, columns=['ID', '名称', '规格', 'USD价格', 'EUR价格', 'CNY价格', '库存', '库存预警', '创建时间'])
         st.dataframe(df, use_container_width=True)
     else:
         st.info("暂无产品数据")
 
-def show_split_page():
+def split_page():
     """订单拆分页面"""
     st.subheader("🔄 订单拆分")
     st.info("订单拆分功能开发中...")
@@ -337,7 +292,7 @@ def show_split_page():
     st.write("- 选择拆分方式（按数量/按金额）")
     st.write("- 一键生成子订单")
 
-def show_inventory_page():
+def inventory_page():
     """库存管理页面"""
     st.subheader("📦 库存管理")
     st.info("库存管理功能开发中...")
@@ -347,7 +302,7 @@ def show_inventory_page():
     st.write("- 库存预警")
     st.write("- 库存日志")
 
-def show_stats_page():
+def stats_page():
     """销售统计页面"""
     st.subheader("📊 销售统计")
     
@@ -398,7 +353,7 @@ def show_stats_page():
     with col4:
         st.metric("产品总数", total_products)
 
-def show_reports_page():
+def reports_page():
     """高级报表页面"""
     st.subheader("📊 高级报表")
     st.info("高级报表功能开发中...")
@@ -408,195 +363,149 @@ def show_reports_page():
     st.write("- 产品报表（畅销/滞销）")
     st.write("- 可视化图表")
 
-def export_orders():
-    """导出订单"""
-    conn = sqlite3.connect(db_file)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT o.*, c.name as customer_name, p.name as product_name
-        FROM orders o
-        LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN products p ON o.product_id = p.id
-        ORDER BY o.created_at DESC
-    """)
-    orders = cursor.fetchall()
-    conn.close()
-    
-    if orders:
-        output = StringIO()
-        writer = csv.writer(output)
-        writer.writerow(['ID', '订单号', '客户', '产品', '数量', '币种', '单价', '总金额', '状态', '备注', '创建时间'])
-        for order in orders:
-            writer.writerow([
-                order[0], order[1], 
-                order[13] if len(order) > 13 else '', 
-                order[14] if len(order) > 14 else '',
-                order[4], order[5], order[6], order[7], order[8], order[9], order[10]
-            ])
-        
-        st.download_button(
-            label="下载订单CSV",
-            data=output.getvalue(),
-            file_name=f"orders_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
-    else:
-        st.warning("暂无订单数据可导出")
-
-def show_add_order_page():
+def add_order_page():
     """新建订单页面"""
     st.subheader("📝 新建订单")
     
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        if st.button("← 返回订单管理", use_container_width=True):
-            st.session_state.current_page = 'orders'
-            st.rerun()
+    if st.button("← 返回订单管理"):
+        st.session_state.page = 'orders'
+        st.rerun()
     
     st.divider()
     
-    with st.form("add_order_form"):
-        order_no = st.text_input("订单号：", f"ORD-{datetime.now().strftime('%Y%m%d')}-001")
+    order_no = st.text_input("订单号：", f"ORD-{datetime.now().strftime('%Y%m%d')}-001")
+    
+    # 获取客户列表
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM customers")
+    customers = cursor.fetchall()
+    cursor.execute("SELECT id, name FROM products")
+    products = cursor.fetchall()
+    conn.close()
+    
+    customer_options = [f"{c[1]} (ID:{c[0]})" for c in customers] if customers else ["暂无客户"]
+    product_options = [f"{p[1]} (ID:{p[0]})" for p in products] if products else ["暂无产品"]
+    
+    customer_selected = st.selectbox("客户：", customer_options)
+    product_selected = st.selectbox("产品：", product_options)
+    
+    quantity = st.number_input("数量：", min_value=1, value=1)
+    currency = st.selectbox("币种：", ["USD", "EUR", "CNY"])
+    price = st.number_input("单价：", min_value=0.0, value=0.0, step=0.01)
+    status = st.selectbox("状态：", ["待处理", "处理中", "已完成", "已取消"])
+    notes = st.text_area("备注：")
+    
+    if st.button("提交订单", type="primary"):
+        if not customers or not products:
+            st.error("请先创建客户和产品！")
+            return
         
-        # 获取客户列表
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name FROM customers")
-        customers = cursor.fetchall()
-        cursor.execute("SELECT id, name FROM products")
-        products = cursor.fetchall()
-        conn.close()
+        # 提取客户ID和产品ID
+        customer_id = int(customer_selected.split("(ID:")[1].rstrip(")"))
+        product_id = int(product_selected.split("(ID:")[1].rstrip(")"))
+        total_amount = quantity * price
         
-        customer_options = [f"{c[1]} (ID:{c[0]})" for c in customers] if customers else ["暂无客户"]
-        product_options = [f"{p[1]} (ID:{p[0]})" for p in products] if products else ["暂无产品"]
-        
-        customer_selected = st.selectbox("客户：", customer_options)
-        product_selected = st.selectbox("产品：", product_options)
-        
-        quantity = st.number_input("数量：", min_value=1, value=1)
-        currency = st.selectbox("币种：", ["USD", "EUR", "CNY"])
-        price = st.number_input("单价：", min_value=0.0, value=0.0, step=0.01)
-        status = st.selectbox("状态：", ["待处理", "处理中", "已完成", "已取消"])
-        notes = st.text_area("备注：")
-        
-        submit_button = st.form_submit_button("提交订单")
-        
-        if submit_button:
-            if not customers or not products:
-                st.error("请先创建客户和产品！")
-                return
-            
-            # 提取客户ID和产品ID
-            customer_id = int(customer_selected.split("(ID:")[1].rstrip(")"))
-            product_id = int(product_selected.split("(ID:")[1].rstrip(")"))
-            total_amount = quantity * price
-            
-            try:
-                conn = sqlite3.connect(db_file)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO orders (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes))
-                conn.commit()
-                conn.close()
-                st.success("订单创建成功！")
-                st.session_state.current_page = 'orders'
-                st.rerun()
-            except Exception as e:
-                st.error(f"创建订单失败：{e}")
+        try:
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO orders (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (order_no, customer_id, product_id, quantity, currency, price, total_amount, status, notes))
+            conn.commit()
+            conn.close()
+            st.success("订单创建成功！")
+            st.session_state.page = 'orders'
+            st.rerun()
+        except Exception as e:
+            st.error(f"创建订单失败：{e}")
 
-def show_add_customer_page():
+def add_customer_page():
     """新建客户页面"""
     st.subheader("➕ 新建客户")
     
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        if st.button("← 返回客户管理", use_container_width=True):
-            st.session_state.current_page = 'customers'
-            st.rerun()
+    if st.button("← 返回客户管理"):
+        st.session_state.page = 'customers'
+        st.rerun()
     
     st.divider()
     
-    with st.form("add_customer_form"):
-        name = st.text_input("客户名称：")
-        contact = st.text_input("联系人：")
-        email = st.text_input("邮箱：")
-        phone = st.text_input("电话：")
-        address = st.text_area("地址：")
+    name = st.text_input("客户名称：")
+    contact = st.text_input("联系人：")
+    email = st.text_input("邮箱：")
+    phone = st.text_input("电话：")
+    address = st.text_area("地址：")
+    
+    if st.button("提交客户", type="primary"):
+        if not name:
+            st.error("请输入客户名称！")
+            return
         
-        submit_button = st.form_submit_button("提交客户")
-        
-        if submit_button:
-            if not name:
-                st.error("请输入客户名称！")
-                return
-            
-            try:
-                conn = sqlite3.connect(db_file)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO customers (name, contact, email, phone, address)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (name, contact, email, phone, address))
-                conn.commit()
-                conn.close()
-                st.success("客户创建成功！")
-                st.session_state.current_page = 'customers'
-                st.rerun()
-            except Exception as e:
-                st.error(f"创建客户失败：{e}")
+        try:
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO customers (name, contact, email, phone, address)
+                VALUES (?, ?, ?, ?, ?)
+            """, (name, contact, email, phone, address))
+            conn.commit()
+            conn.close()
+            st.success("客户创建成功！")
+            st.session_state.page = 'customers'
+            st.rerun()
+        except Exception as e:
+            st.error(f"创建客户失败：{e}")
 
-def show_add_product_page():
+def add_product_page():
     """新建产品页面"""
     st.subheader("➕ 新建产品")
     
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        if st.button("← 返回产品管理", use_container_width=True):
-            st.session_state.current_page = 'products'
-            st.rerun()
+    if st.button("← 返回产品管理"):
+        st.session_state.page = 'products'
+        st.rerun()
     
     st.divider()
     
-    with st.form("add_product_form"):
-        name = st.text_input("产品名称：")
-        spec = st.text_input("规格：")
-        price_usd = st.number_input("USD 价格：", min_value=0.0, value=0.0, step=0.01)
-        price_eur = st.number_input("EUR 价格：", min_value=0.0, value=0.0, step=0.01)
-        price_cny = st.number_input("CNY 价格：", min_value=0.0, value=0.0, step=0.01)
-        stock = st.number_input("库存数量：", min_value=0, value=0)
-        stock_warning = st.number_input("库存预警值：", min_value=0, value=10)
+    name = st.text_input("产品名称：")
+    spec = st.text_input("规格：")
+    price_usd = st.number_input("USD 价格：", min_value=0.0, value=0.0, step=0.01)
+    price_eur = st.number_input("EUR 价格：", min_value=0.0, value=0.0, step=0.01)
+    price_cny = st.number_input("CNY 价格：", min_value=0.0, value=0.0, step=0.01)
+    stock = st.number_input("库存数量：", min_value=0, value=0)
+    stock_warning = st.number_input("库存预警值：", min_value=0, value=10)
+    
+    if st.button("提交产品", type="primary"):
+        if not name:
+            st.error("请输入产品名称！")
+            return
         
-        submit_button = st.form_submit_button("提交产品")
-        
-        if submit_button:
-            if not name:
-                st.error("请输入产品名称！")
-                return
-            
-            try:
-                conn = sqlite3.connect(db_file)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO products (name, spec, price_usd, price_eur, price_cny, stock, stock_warning)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (name, spec, price_usd, price_eur, price_cny, stock, stock_warning))
-                conn.commit()
-                conn.close()
-                st.success("产品创建成功！")
-                st.session_state.current_page = 'products'
-                st.rerun()
-            except Exception as e:
-                st.error(f"创建产品失败：{e}")
+        try:
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO products (name, spec, price_usd, price_eur, price_cny, stock, stock_warning)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (name, spec, price_usd, price_eur, price_cny, stock, stock_warning))
+            conn.commit()
+            conn.close()
+            st.success("产品创建成功！")
+            st.session_state.page = 'products'
+            st.rerun()
+        except Exception as e:
+            st.error(f"创建产品失败：{e}")
 
 # 主程序
 init_db()
 
 if st.session_state.user is None:
-    login()
+    login_page()
 else:
-    show_dashboard()
+    if st.session_state.page == 'add_order':
+        add_order_page()
+    elif st.session_state.page == 'add_customer':
+        add_customer_page()
+    elif st.session_state.page == 'add_product':
+        add_product_page()
+    else:
+        main_page()
